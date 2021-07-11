@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.readx">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Design.NoActionBar"
+        android:usesCleartextTraffic="true">
+        <activity android:name=".Groups"></activity>
+
+        <meta-data
+            android:name="com.parse.SERVER_URL"
+            android:value="https://parse-dashboard.back4app.com/" />
+        <meta-data
+            android:name="com.parse.APPLICATION_ID"
+            android:value="ez0LNTKUDyv99oBvjc2N7IaoetXEd6F96TiUIi9e" />
+        <meta-data
+            android:name="com.parse.CLIENT_KEY"
+            android:value="O45Iqa5U6aJzIEheeX9wDeXkBt7HCH5P0mnvyiSQ" />
+
+        <uses-library
+            android:name="org.apache.http.legacy"
+            android:required="false" />
+
+        <activity android:name=".Messages" />
+        <activity
+            android:name=".readPdf"
+            android:configChanges="orientation|screenSize" />
+        <activity android:name=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

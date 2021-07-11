@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">ReadX</string>
+    <string name="title_activity_book">book</string>
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+    <string name="nav_header_title">Android Studio</string>
+    <string name="nav_header_subtitle">android.studio@android.com</string>
+    <string name="nav_header_desc">Navigation header</string>
+    <string name="action_settings">Settings</string>
+
+    <string name="back4app_server_url">https://parseapi.back4app.com/</string>
+    <!-- Change the following strings as required -->
+    <string name="back4app_app_id">ez0LNTKUDyv99oBvjc2N7IaoetXEd6F96TiUIi9e</string>
+    <string name="back4app_client_key">O45Iqa5U6aJzIEheeX9wDeXkBt7HCH5P0mnvyiSQ</string>
+
+    <string name="menu_home">Home</string>
+    <string name="menu_gallery">Gallery</string>
+    <string name="menu_slideshow">Slideshow</string>
+</resources>
