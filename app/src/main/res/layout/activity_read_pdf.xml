@@ -33,8 +33,36 @@
                 android:id="@+id/save"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Save" />
+                android:text="Save"
+                />
+
+
         </LinearLayout>
+
+
+        <LinearLayout
+            android:id="@+id/lays"
+            android:layout_width="match_parent"
+            android:layout_height="275dp"
+            android:orientation="vertical"
+            android:visibility="invisible">
+
+            <Button
+                android:id="@+id/show"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Show" />
+
+            <Button
+                android:id="@+id/create"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Create" />
+
+
+        </LinearLayout>
+
+
     </com.github.barteksc.pdfviewer.PDFView>
 
 

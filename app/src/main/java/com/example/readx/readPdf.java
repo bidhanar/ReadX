@@ -47,7 +47,10 @@ public class readPdf extends AppCompatActivity {
     int pageNumber;
     PDFView pdfView;
     LinearLayout linearLayout;
+    LinearLayout lays;
     Button save;
+    Button show;
+    Button create;
     ArrayList<Notes> arrayList = new ArrayList<>();
     ArrayList<String> arrayList1 = new ArrayList<>();
     EditText editText;
@@ -65,11 +68,57 @@ public class readPdf extends AppCompatActivity {
         );
         pdfView = findViewById(R.id.pdfView);
         linearLayout = findViewById(R.id.linearlayout);
+        lays = findViewById(R.id.lays);
         save = findViewById(R.id.save);
         editText = findViewById(R.id.editText);
+        show = findViewById(R.id.show);
+        create = findViewById(R.id.create);
         String username = getIntent().getStringExtra("name");
         loadBook(0);
 
+
+        //Creating the Listener for show button
+        show.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                lays.setVisibility(View.INVISIBLE);
+                Intent intent = new Intent(getApplicationContext(),Messages.class);
+                startActivity(intent);
+            }
+        });
+        //Creating the Listener for create button
+        create.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+
+                AlertDialog.Builder builder
+                        = new AlertDialog
+                        .Builder(readPdf.this)
+                        .setTitle("Note")
+                        .setMessage("Do you want to create a note?")
+                        .setCancelable(false)
+                        .setPositiveButton("Yes", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                lays.setVisibility(View.INVISIBLE);
+                                linearLayout.setVisibility(View.VISIBLE);
+                            }
+                        })
+                        .setNegativeButton("No", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface dialog, int which) {
+                                Toast.makeText(getApplicationContext(),"Failed!!",Toast.LENGTH_SHORT).show();
+                                dialog.cancel();
+                            }
+                        });
+
+                AlertDialog alertDialog = builder.create();
+
+                alertDialog.show();
+
+            }
+        });
+        //Creating the Listener for save button
         save.setOnClickListener(new View.OnClickListener() {
             @RequiresApi(api = Build.VERSION_CODES.O)
             @Override
@@ -79,11 +128,11 @@ public class readPdf extends AppCompatActivity {
 //                    Notes notes = new Notes(username,editText.getText().toString(), LocalTime.now(),pdfView.getCurrentPage());
                     addMessage(username,editText.getText().toString(), LocalDateTime.now().toString(),pdfView.getCurrentPage());
                     editText.setText("");
+                    Toast.makeText(getApplicationContext(),"Saved Successfully!!",Toast.LENGTH_SHORT).show();
 //
 //                    int lastIndex = arrayList.size() -1;
 //                    arrayList1.add(arrayList.get(lastIndex).getUsername() + " : " + arrayList.get(lastIndex).getMessage() + " at " + arrayList.get(lastIndex).getTime().toString() + " on Page " + String.valueOf(arrayList.get(lastIndex).getPage()));
-                    Intent intent = new Intent(getApplicationContext(),Messages.class);
-                    startActivity(intent);
+
                 }
                 hideKeybaord(v);
             }
@@ -108,32 +157,7 @@ public class readPdf extends AppCompatActivity {
                 .onLongPress(new OnLongPressListener() {
                     @Override
                     public void onLongPress(MotionEvent e) {
-
-                        AlertDialog.Builder builder
-                                = new AlertDialog
-                                .Builder(readPdf.this)
-                                .setTitle("Note")
-                                .setMessage("Do you want to create a note?")
-                                .setCancelable(false)
-                                .setPositiveButton("Yes", new DialogInterface.OnClickListener() {
-                                    @Override
-                                    public void onClick(DialogInterface dialog, int which) {
-                                        Toast.makeText(getApplicationContext(),"Done!!",Toast.LENGTH_SHORT).show();
-                                        linearLayout.setVisibility(View.VISIBLE);
-                                    }
-                                })
-                                .setNegativeButton("No", new DialogInterface.OnClickListener() {
-                                    @Override
-                                    public void onClick(DialogInterface dialog, int which) {
-                                        Toast.makeText(getApplicationContext(),"Barbaad!!",Toast.LENGTH_SHORT).show();
-                                        dialog.cancel();
-                                    }
-                                });
-
-                        AlertDialog alertDialog = builder.create();
-
-                        alertDialog.show();
-
+                        lays.setVisibility(View.VISIBLE);
                     }
                 })
                 .onRender(new OnRenderListener() {
