@@ -14,7 +14,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Design.NoActionBar"
         android:usesCleartextTraffic="true">
-        <activity android:name=".Groups"></activity>
+        <activity android:name=".Groups" android:windowSoftInputMode="adjustNothing"></activity>
 
         <meta-data
             android:name="com.parse.SERVER_URL"

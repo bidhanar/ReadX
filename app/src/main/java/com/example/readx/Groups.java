@@ -7,6 +7,8 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ListView;
 
 import com.parse.FindCallback;
@@ -23,6 +25,8 @@ public class Groups extends AppCompatActivity {
     Button button;
     Button logout;
     ListView listView;
+    EditText search;
+    ImageButton userSearch;
     ArrayList<String> arrayList;
     ArrayAdapter arrayAdapter;
 
@@ -39,31 +43,44 @@ public class Groups extends AppCompatActivity {
         button = findViewById(R.id.button);
         logout = findViewById(R.id.logout);
         listView = findViewById(R.id.listview1);
+        search = findViewById(R.id.search);
+        userSearch = findViewById(R.id.userSearch);
         arrayList = new ArrayList<>();
         String user = getIntent().getStringExtra("user");
-
         ParseQuery<ParseUser> query = ParseUser.getQuery();
-        query.addAscendingOrder("username");
-        query.findInBackground(new FindCallback<ParseUser>() {
+
+        userSearch.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void done(List<ParseUser> objects, ParseException e) {
-                if (e == null){
-                    if(objects.size() > 0){
-                        for(ParseUser user : objects){
-                            arrayList.add(user.getUsername());
+            public void onClick(View v) {
+                if(arrayList.size() != 0){
+                    arrayList.clear();
+                }
+                query.addAscendingOrder("username");
+                query.findInBackground(new FindCallback<ParseUser>() {
+                    @Override
+                    public void done(List<ParseUser> objects, ParseException e) {
+                        if (e == null){
+                            if(objects.size() > 0){
+                                for(ParseUser user : objects){
+                                    if (user.getUsername().contains(search.getText().toString())){
+                                        arrayList.add(user.getUsername());
+                                    }
+
+                                }
+                                if (arrayList.size() == 0){
+                                    arrayList.add("No Users Found!!!");
+                                }
+                                arrayAdapter = new ArrayAdapter(getApplicationContext(), android.R.layout.simple_list_item_1, arrayList);
+                                listView.setAdapter(arrayAdapter);
+                            }
                         }
-                        arrayAdapter = new ArrayAdapter(getApplicationContext(), android.R.layout.simple_list_item_1, arrayList);
-                        listView.setAdapter(arrayAdapter);
+                        else{
+                            e.printStackTrace();
+                        }
                     }
-                }
-                else{
-                    e.printStackTrace();
-                }
+                });
             }
         });
-
-
-
 
 
         logout.setOnClickListener(new View.OnClickListener() {

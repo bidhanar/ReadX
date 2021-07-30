@@ -4,63 +4,96 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@android:color/holo_blue_dark"
     tools:context=".Groups">
 
-    <Button
-        android:id="@+id/button"
-        android:layout_width="193dp"
-        android:layout_height="69dp"
-        android:layout_marginTop="664dp"
-        android:layout_marginBottom="19dp"
-        android:text="Start Book"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.007"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.0" />
 
-    <Button
-        android:id="@+id/logout"
-        android:layout_width="196dp"
-        android:layout_height="69dp"
-        android:layout_marginStart="212dp"
-        android:layout_marginTop="61dp"
-        android:layout_marginBottom="293dp"
-        android:text="Log Out"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button"
-        app:layout_constraintVertical_bias="0.31" />
-
-    <TextView
-        android:id="@+id/textView"
-        android:layout_width="164dp"
-        android:layout_height="33dp"
-        android:layout_marginStart="139dp"
-        android:layout_marginTop="34dp"
-        android:layout_marginEnd="139dp"
-        android:layout_marginBottom="559dp"
-        android:gravity="center"
-        android:text="Users"
-        app:layout_constraintBottom_toTopOf="@+id/logout"
+    <LinearLayout
+        android:layout_width="408dp"
+        android:layout_height="71dp"
+        android:layout_marginStart="1dp"
+        android:layout_marginTop="1dp"
+        android:layout_marginEnd="273dp"
+        android:layout_marginBottom="16dp"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toTopOf="@+id/listview1"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.516"
+        app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/listview1"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintVertical_bias="0.0" />
+        app:layout_constraintVertical_bias="1.0">
+
+        <TextView
+            android:id="@+id/textView"
+            android:layout_width="164dp"
+            android:layout_height="33dp"
+            android:gravity="center"
+            android:text="Users"
+            android:textSize="24sp"
+            android:textStyle="bold|italic" />
+
+        <EditText
+            android:id="@+id/search"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ems="10"
+            android:gravity="center"
+            android:hint="Search..."
+            android:imeOptions="actionDone"
+            android:inputType="textPersonName" />
+
+        <ImageButton
+            android:id="@+id/userSearch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:srcCompat="@android:drawable/ic_menu_search" />
+    </LinearLayout>
 
     <ListView
         android:id="@+id/listview1"
-        android:layout_width="408dp"
-        android:layout_height="590dp"
+        android:layout_width="405dp"
+        android:layout_height="518dp"
         android:layout_marginStart="1dp"
         android:layout_marginTop="1dp"
         android:layout_marginEnd="1dp"
         android:layout_marginBottom="1dp"
-        app:layout_constraintBottom_toTopOf="@+id/logout"
+        app:layout_constraintBottom_toTopOf="@+id/hue"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/textView" />
+        app:layout_constraintTop_toBottomOf="@+id/hue" >
+
+    </ListView>
+
+    <LinearLayout
+        android:id="@+id/hue"
+        android:layout_width="409dp"
+        android:layout_height="48dp"
+        android:layout_marginStart="1dp"
+        android:layout_marginTop="50dp"
+        android:layout_marginEnd="1dp"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/listview1">
+
+        <Button
+            android:id="@+id/button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Start Book" />
+
+        <Button
+            android:id="@+id/logout"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Logout" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
