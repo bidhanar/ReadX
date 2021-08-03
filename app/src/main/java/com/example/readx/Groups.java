@@ -52,9 +52,7 @@ public class Groups extends AppCompatActivity {
         userSearch.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if(arrayList.size() != 0){
-                    arrayList.clear();
-                }
+                arrayList.clear();
                 query.addAscendingOrder("username");
                 query.findInBackground(new FindCallback<ParseUser>() {
                     @Override

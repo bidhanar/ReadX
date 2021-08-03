@@ -51,6 +51,7 @@ public class readPdf extends AppCompatActivity {
     Button save;
     Button show;
     Button create;
+    Button cancel;
     ArrayList<Notes> arrayList = new ArrayList<>();
     ArrayList<String> arrayList1 = new ArrayList<>();
     EditText editText;
@@ -73,6 +74,7 @@ public class readPdf extends AppCompatActivity {
         editText = findViewById(R.id.editText);
         show = findViewById(R.id.show);
         create = findViewById(R.id.create);
+        cancel = findViewById(R.id.cancel);
         String username = getIntent().getStringExtra("name");
         loadBook(0);
 
@@ -135,6 +137,13 @@ public class readPdf extends AppCompatActivity {
 
                 }
                 hideKeybaord(v);
+            }
+        });
+        //Creating the Listener for cancel button
+        cancel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                lays.setVisibility(View.INVISIBLE);
             }
         });
 
