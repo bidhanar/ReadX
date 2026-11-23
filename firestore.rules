@@ -1,0 +1,117 @@
+rules_version = '2';
+
+// ReadX access model
+//  - A group's data is visible only to its members (doc at groups/{gid}/members/{uid}).
+//  - Everyone owns what they write: annotations, replies, messages, progress.
+//  - Joining = creating your own member doc carrying a valid invite code for that group.
+//  - The group owner can rename the group, rotate the invite, remove members, and delete any book.
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function groupPath(gid) { return /databases/$(db)/documents/groups/$(gid); }
+    function memberPath(gid, uid) { return /databases/$(db)/documents/groups/$(gid)/members/$(uid); }
+    function isMember(gid) { return signedIn() && exists(memberPath(gid, me())); }
+    function isOwner(gid) { return signedIn() && get(groupPath(gid)).data.ownerId == me(); }
+    function ownerAfter(gid) { return getAfter(groupPath(gid)).data.ownerId == me(); }
+    function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    function shortText(v, max) { return v is string && v.size() <= max; }
+
+    // ---- Per-user private data -------------------------------------------------------------
+    match /users/{uid}/{document=**} {
+      allow read, write: if signedIn() && me() == uid;
+    }
+
+    // ---- Invites: readable by code only (no listing), managed by the group owner -----------
+    match /invites/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn() && ownerAfter(request.resource.data.groupId);
+      allow delete: if signedIn() && isOwner(resource.data.groupId);
+    }
+
+    // "My groups" query: collectionGroup('members').where('uid', '==', me)
+    match /{path=**}/members/{uid} {
+      allow read: if signedIn() && resource.data.uid == me();
+    }
+
+    // ---- Groups ------------------------------------------------------------------------------
+    match /groups/{gid} {
+      allow read: if isMember(gid);
+      allow create: if signedIn()
+        && request.resource.data.ownerId == me()
+        && shortText(request.resource.data.name, 80)
+        && exists(memberPath(gid, me())) == false
+        && existsAfter(memberPath(gid, me()));
+      allow update: if isOwner(gid)
+        && onlyChanges(['name', 'inviteCode'])
+        && shortText(request.resource.data.name, 80);
+      allow delete: if isOwner(gid);
+
+      match /members/{uid} {
+        allow read: if isMember(gid);
+        allow create: if signedIn() && uid == me() && request.resource.data.uid == me() && (
+          // Owner bootstrapping their own group (same batch as the group create)
+          (request.resource.data.role == 'owner' && ownerAfter(gid))
+          ||
+          // Joining with a valid invite code
+          (request.resource.data.role == 'member'
+            && request.resource.data.code is string
+            && get(/databases/$(db)/documents/invites/$(request.resource.data.code)).data.groupId == gid)
+        );
+        // Update your own profile bits / last-seen; role can't change
+        allow update: if signedIn() && uid == me() && onlyChanges(['displayName', 'photoURL', 'lastSeenAt']);
+        // Leave, or be removed by the owner (owner can't remove themselves this way)
+        allow delete: if signedIn() && ((uid == me() && resource.data.role != 'owner') || (isOwner(gid) && uid != me()));
+      }
+
+      match /messages/{mid} {
+        allow read: if isMember(gid);
+        allow create: if isMember(gid)
+          && request.resource.data.authorId == me()
+          && shortText(request.resource.data.text, 4000);
+        allow update: if isMember(gid) && resource.data.authorId == me()
+          && onlyChanges(['text', 'editedAt'])
+          && shortText(request.resource.data.text, 4000);
+        allow delete: if isMember(gid) && (resource.data.authorId == me() || isOwner(gid));
+      }
+
+      match /books/{bookId} {
+        allow read: if isMember(gid);
+        allow create: if isMember(gid) && request.resource.data.uploadedBy == me()
+          && request.resource.data.format in ['pdf', 'epub']
+          && shortText(request.resource.data.title, 300);
+        allow update: if isMember(gid)
+          && (resource.data.uploadedBy == me() || isOwner(gid))
+          && onlyChanges(['title', 'author']);
+        allow delete: if isMember(gid) && (resource.data.uploadedBy == me() || isOwner(gid));
+
+        match /annotations/{aid} {
+          allow read: if isMember(gid);
+          allow create: if isMember(gid)
+            && request.resource.data.authorId == me()
+            && request.resource.data.type in ['highlight', 'note', 'link', 'comment']
+            && shortText(request.resource.data.text, 10000);
+          allow update: if isMember(gid) && resource.data.authorId == me()
+            && request.resource.data.authorId == me()
+            && onlyChanges(['color', 'text', 'url', 'type', 'updatedAt'])
+            && shortText(request.resource.data.text, 10000);
+          allow delete: if isMember(gid) && (resource.data.authorId == me() || isOwner(gid));
+
+          match /replies/{rid} {
+            allow read: if isMember(gid);
+            allow create: if isMember(gid)
+              && request.resource.data.authorId == me()
+              && shortText(request.resource.data.text, 4000);
+            allow delete: if isMember(gid) && resource.data.authorId == me();
+          }
+        }
+
+        match /progress/{uid} {
+          allow read: if isMember(gid);
+          allow write: if isMember(gid) && uid == me();
+        }
+      }
+    }
+  }
+}

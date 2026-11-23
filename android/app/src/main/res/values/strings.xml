@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ReadX</string>
+    <string name="title_activity_main">ReadX</string>
+    <string name="package_name">com.readx.app</string>
+    <string name="custom_url_scheme">com.readx.app</string>
+</resources>

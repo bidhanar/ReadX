@@ -1,15 +1,21 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+node_modules/
+dist/
+.env.local
+.env.*.local
+*.log
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+# Android build outputs (android/ project itself is committed)
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/google-services.json
+android/.idea/
+android/capacitor-cordova-android-plugins/build/
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+
+# TypeScript incremental build cache
+*.tsbuildinfo
