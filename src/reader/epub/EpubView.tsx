@@ -17,7 +17,7 @@ import {
   pageScroll,
   type EpubLayout,
 } from './layout';
-import { fitPages } from '../Pager';
+import { fitPages, wantsSpread } from '../Pager';
 
 /** One page slot in the current window. `blank` pads spreads so chapters start on a left page. */
 interface Entry {
@@ -59,6 +59,7 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
   const tocPages = useRef(new Map<string, { page: number; label: string }[]>());
   /** Page count of every chapter at the current layout, filled in the background. */
   const countsRef = useRef<{ key: string; counts: number[]; done: boolean } | null>(null);
+  const recentreTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // ---- Open the EPUB -----------------------------------------------------------------------
   useEffect(() => {
@@ -70,7 +71,7 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
         if (cancelled) return d.destroy();
         opened = d;
         setEpub(d);
-        propsRef.current.onReady(d.toc, { rtl: d.rtl });
+        propsRef.current.onReady(d.toc, { rtl: d.rtl, lang: d.lang || undefined });
         d.computeWeights(ac.signal);
       })
       .catch((e) => !cancelled && propsRef.current.onError(e instanceof Error ? e : new Error(String(e))));
@@ -100,8 +101,8 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
   }, []);
 
   // ---- (Re)layout: new measurer, rebuild window at the current position ----------------------
-  const { theme, flipMode } = props;
-  const { fontSize, font, lineSpacing, margins } = props.typography;
+  const { theme, flipMode, pageLayout } = props;
+  const { fontSize, font, lineSpacing, margins, hyphens } = props.typography;
   useEffect(() => {
     if (!epub || !size) return;
     const { w, h } = size;
@@ -110,8 +111,8 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
       (async () => {
         const first = Math.max(0, epub.spine.findIndex((s) => s.linear));
         const vp = fixedViewport(await epub.sectionHtml(first));
-        const fit = fitPages(w, h, vp ? vp.w / vp.h : 0.75, flipMode !== 'scroll');
-        layoutRef.current = { pageW: fit.pageW, pageH: fit.pageH, fontSize, theme, font, lineSpacing, margins };
+        const fit = fitPages(w, h, vp ? vp.w / vp.h : 0.75, pageLayout, flipMode);
+        layoutRef.current = { pageW: fit.pageW, pageH: fit.pageH, fontSize, theme, font, lineSpacing, margins, hyphens };
         spreadRef.current = fit.spread;
         let start = first;
         const s = cfiRef.current ? cfiSpineIndex(cfiRef.current) : null;
@@ -126,12 +127,14 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
         genRef.current++;
       };
     }
-    const spread = flipMode !== 'scroll' && w >= 900 && w / h > 1.15;
-    const pad = w < 640 ? 0 : 16;
+    const spread = wantsSpread(pageLayout, flipMode, w, h);
+    // Two pages: book-shaped pages with a small gutter. Single page: fill the whole reading area
+    // edge to edge (the text column stays a readable width, see paddings()).
+    const pad = spread && w >= 640 ? 16 : 0;
     const availW = w - pad * 2;
     const pageH = Math.floor(h - pad * 2);
-    const pageW = Math.floor(spread ? Math.min(availW / 2, pageH * 0.75) : Math.min(availW, Math.max(pageH * 0.8, Math.min(availW, 560))));
-    const layout: EpubLayout = { pageW, pageH, fontSize, theme, font, lineSpacing, margins };
+    const pageW = Math.floor(spread ? Math.min(availW / 2, pageH * 0.75) : availW);
+    const layout: EpubLayout = { pageW, pageH, fontSize, theme, font, lineSpacing, margins, hyphens };
     layoutRef.current = layout;
     spreadRef.current = spread;
     measurerRef.current?.destroy();
@@ -171,7 +174,7 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
       genRef.current++;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [epub, size, theme, fontSize, font, lineSpacing, margins, flipMode]);
+  }, [epub, size, theme, fontSize, font, lineSpacing, margins, hyphens, flipMode, pageLayout]);
 
   // Tear down on unmount
   useEffect(
@@ -194,7 +197,7 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
   // ---- Window building -----------------------------------------------------------------------
 
   /** Build a window centred on `spine` and show `page` of it. Swaps in without a blank flash. */
-  async function showAt(d: EpubDoc, spine: number, page: number, spread: boolean, animate: boolean) {
+  async function showAt(d: EpubDoc, spine: number, page: number, spread: boolean, animate: boolean, recentre = false) {
     const layout = layoutRef.current!;
     const measurer = measurerRef.current!;
     const gen = genRef.current;
@@ -209,9 +212,10 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
     if (gen !== genRef.current) return;
     page = Math.max(0, Math.min(page, curCount - 1));
 
-    // Same chapter already showing → just turn the page
+    // Page already in the loaded window (its chapter or a neighbour) → just turn to it.
+    // (Not when re-centring: the point then is to rebuild around that chapter.)
     const existing = winRef.current;
-    if (existing && existing.center === spine && sameLayout(existing)) {
+    if (!recentre && existing && !existing.fixed && sameLayout(existing)) {
       const idx = existing.entries.findIndex((e) => !e.blank && e.spine === spine && e.page === page);
       if (idx >= 0) {
         existing.pager.goTo(idx, animate);
@@ -219,16 +223,18 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
       }
     }
 
+    // The window holds the whole previous and next chapters, so turning into them is an ordinary
+    // turn (pages are only built near where you are). Re-centring happens later, when idle.
+    // In spreads, blanks keep every chapter starting on a left-hand page.
     const entries: Entry[] = [];
     if (prevCount > 0) {
-      const tail = Math.min(2, prevCount);
-      if (spread && tail < 2) entries.push({ spine: spine - 1, page: 0, count: prevCount, blank: true });
-      for (let p = prevCount - tail; p < prevCount; p++) entries.push({ spine: spine - 1, page: p, count: prevCount });
+      if (spread && prevCount % 2 === 1) entries.push({ spine: spine - 1, page: 0, count: prevCount, blank: true });
+      for (let p = 0; p < prevCount; p++) entries.push({ spine: spine - 1, page: p, count: prevCount });
     }
     const offset = entries.length;
     for (let p = 0; p < curCount; p++) entries.push({ spine, page: p, count: curCount });
     if (spread && curCount % 2 === 1 && nextCount > 0) entries.push({ spine, page: curCount, count: curCount, blank: true });
-    for (let p = 0; p < Math.min(2, nextCount); p++) entries.push({ spine: spine + 1, page: p, count: nextCount });
+    for (let p = 0; p < nextCount; p++) entries.push({ spine: spine + 1, page: p, count: nextCount });
 
     const host = document.createElement('div');
     host.className = 'absolute inset-0 flex items-center justify-center';
@@ -285,6 +291,13 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
       return;
     }
     const old = winRef.current;
+    // You may have kept turning in the old window while this one was being built: continue from
+    // where you are now, not where you were when the rebuild started.
+    if (old && !old.fixed && old.key === win.key) {
+      const now = old.entries[old.pager.current];
+      const idx = now ? entries.findIndex((e) => e.spine === now.spine && e.page === now.page && !!e.blank === !!now.blank) : -1;
+      if (idx >= 0 && idx !== win.pager.current) win.pager.goTo(idx, false);
+    }
     winRef.current = win;
     host.style.visibility = 'visible';
     destroyWin(old);
@@ -357,13 +370,21 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
     if (winRef.current !== win) return;
     const entry = win.entries[i];
     if (!entry) return;
-    if (!win.fixed && entry.spine !== win.center) {
-      // Flipped into a neighbouring chapter's preview pages → recentre on that chapter
-      const page = entry.blank ? 0 : entry.page;
-      setTimeout(() => showAt(d, entry.spine, page, spread, false), 30);
-      return;
-    }
     reportLocation(d, win);
+    clearTimeout(recentreTimer.current);
+    if (!win.fixed && entry.spine !== win.center) {
+      // Reading in a neighbouring chapter: re-centre on it (so ITS neighbours get loaded) once you
+      // pause, or right away when you're near the edge of what this window holds.
+      const nearEdge = i < 3 || i > win.entries.length - 4;
+      recentreTimer.current = setTimeout(
+        () => {
+          if (winRef.current !== win) return;
+          const cur = win.entries[win.pager.current];
+          if (cur && cur.spine !== win.center) showAt(d, cur.spine, cur.blank ? 0 : cur.page, spread, false, true);
+        },
+        nearEdge ? 400 : 1200,
+      );
+    }
   }
 
   function reportLocation(d: EpubDoc, win: Win) {
@@ -380,10 +401,22 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
       const cfi = (f && cfiAtPageStart(f.doc, d.spine[entry.spine].cfiBase)) || `epubcfi(${d.spine[entry.spine].cfiBase}!/4)`;
       cfiRef.current = cfi;
       const toc = d.chapterLabel(entry.spine);
+      let nextChapter = n;
+      for (let i = lastVisible + 1; i < n; i++)
+        if (d.tocInSpine.has(i)) {
+          nextChapter = i;
+          break;
+        }
       propsRef.current.onLocation({
         location: cfi,
         percent: n > 1 ? lastVisible / (n - 1) : 1,
         label: `${toc ? toc + ' · ' : ''}Page ${win.pager.current + 1} of ${n}`,
+        // A whole fixed page is on screen: everything in it has been seen
+        end: `epubcfi(${d.spine[lastVisible]?.cfiBase ?? d.spine[entry.spine].cfiBase}!)`,
+        chapterPagesLeft: nextChapter - lastVisible - 1,
+        bookPagesLeft: n - 1 - lastVisible,
+        section: 0,
+        page: win.pager.current,
       });
       return;
     }
@@ -391,12 +424,22 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
     if (cfi) cfiRef.current = cfi;
     const chapter = labelFor(d, entry.spine, entry.page);
     const last = win.pager.visible().map((v) => win.entries[v]).filter((e) => e && !e.blank && e.spine === entry!.spine).pop() ?? entry;
+    const lastFrame = win.frames.get(win.entries.indexOf(last));
+    const end = lastFrame ? cfiAtPageEnd(lastFrame.doc, d.spine[last.spine].cfiBase) : null;
     const bp = bookPages();
     const before = bp ? bp.counts.slice(0, entry.spine).reduce((a, b) => a + b, 0) : 0;
+    // The chapter ends where the next TOC entry in this file starts (if measured), else with the file
+    const tocStarts = tocPages.current.get(`${layoutKey(layoutRef.current!)}|${entry.spine}`) ?? [];
+    const chapterEnd = tocStarts.find((t) => t.page > last.page)?.page ?? last.count;
     propsRef.current.onLocation({
       location: cfi ?? cfiRef.current ?? `href:${d.spine[entry.spine].href}`,
       percent: bp ? (before + last.page + 1) / bp.total : d.percentAt(entry.spine, (last.page + 1) / entry.count),
       label: bp ? `${chapter} · ${before + entry.page + 1} of ${bp.total}` : `${chapter} · ${entry.page + 1} of ${entry.count}`,
+      end: end ?? undefined,
+      chapterPagesLeft: Math.max(0, chapterEnd - last.page - 1),
+      bookPagesLeft: bp ? bp.total - (before + last.page + 1) : undefined,
+      section: entry.spine,
+      page: entry.page,
     });
   }
 
@@ -636,10 +679,17 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
       winRef.current?.pager.tapAt(iframe.getBoundingClientRect().left + e.clientX * scale());
     });
 
-    // Touch swipes (events inside the iframe never reach the page-curl engine)
+    // Touches inside the iframe never reach the pager: forward them. In single-page view the page
+    // follows the finger (Pager turn engine); otherwise a quick swipe turns the page.
     let sx = 0,
       sy = 0,
-      st = 0;
+      st = 0,
+      tracking = false;
+    const top = (t: Touch) => {
+      const fr = iframe.getBoundingClientRect();
+      const k = scale();
+      return { x: fr.left + t.clientX * k, y: fr.top + t.clientY * k };
+    };
     doc.addEventListener(
       'touchstart',
       (e) => {
@@ -647,6 +697,17 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
         sx = p.clientX;
         sy = p.clientY;
         st = Date.now();
+        const t = top(p);
+        tracking = !!winRef.current?.pager.touchStart(t.x, t.y);
+      },
+      { passive: true },
+    );
+    doc.addEventListener(
+      'touchmove',
+      (e) => {
+        if (!tracking) return;
+        const t = top(e.changedTouches[0]);
+        winRef.current?.pager.touchMove(t.x, t.y);
       },
       { passive: true },
     );
@@ -654,6 +715,11 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
       'touchend',
       (e) => {
         const p = e.changedTouches[0];
+        if (tracking) {
+          tracking = false;
+          winRef.current?.pager.touchEnd(top(p).x);
+          return;
+        }
         const dx = p.clientX - sx;
         if (Math.abs(dx) > 40 && Math.abs(p.clientY - sy) < 80 && Date.now() - st < 500 && doc.getSelection()?.isCollapsed) {
           // Forward is a leftward swipe in LTR books, rightward in RTL books
@@ -773,6 +839,7 @@ export const EpubView = forwardRef<EngineHandle, EngineProps>(function EpubView(
         }
       },
       locationOf: (a: Anchor) => (a.kind === 'epub' ? a.cfi : ''),
+      chapterOf: (a: Anchor) => (epub && a.kind === 'epub' ? epub.chapterLabel(a.spine) : ''),
       clearSelection: () => {
         for (const f of winRef.current?.frames.values() ?? []) f.doc.getSelection()?.removeAllRanges();
       },
@@ -796,6 +863,48 @@ function destroyWin(win: Win | null) {
   win.pager.destroy();
   win.host.remove();
   win.frames.clear();
+}
+
+/** CFI of the last character visible on the frame's current page (LTR or RTL). */
+function cfiAtPageEnd(doc: Document, cfiBase: string): string | null {
+  const body = doc.body;
+  if (!body) return null;
+  const W = doc.documentElement.clientWidth;
+  const rtl = isRtl(doc);
+  const earlier = (r: DOMRect) => (rtl ? r.left >= W : r.right <= 0);
+  const later = (r: DOMRect) => (rtl ? r.right <= 0 : r.left >= W);
+  const walker = doc.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.textContent && n.textContent.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
+  });
+  const range = doc.createRange();
+  let last: { node: Text; index: number } | null = null;
+  for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+    range.selectNodeContents(n);
+    const rects = Array.from(range.getClientRects());
+    if (!rects.length) continue;
+    if (later(rects[0])) break; // starts on a later page: done
+    if (rects.every(earlier)) continue; // entirely on an earlier page
+    if (!later(rects[rects.length - 1])) {
+      last = { node: n, index: n.length - 1 }; // ends on this page
+      continue;
+    }
+    // Runs onto the next page → binary-search the last character still on this one
+    let lo = 0,
+      hi = n.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      range.setStart(n, mid);
+      range.setEnd(n, mid + 1);
+      if (later(range.getBoundingClientRect())) hi = mid - 1;
+      else lo = mid;
+    }
+    last = { node: n, index: lo };
+    break;
+  }
+  if (!last) return null;
+  range.setStart(last.node, last.index);
+  range.setEnd(last.node, Math.min(last.node.length, last.index + 1));
+  return cfiFromRange(range, cfiBase);
 }
 
 /** CFI of the first character visible on the frame's current page (LTR or RTL). */

@@ -9,6 +9,8 @@ export interface Group {
   name: string;
   ownerId: string;
   inviteCode: string;
+  /** Small square image as a data URL (set by the owner), or none. */
+  logo?: string | null;
   createdAt?: Timestamp;
 }
 
@@ -72,14 +74,23 @@ export interface Progress {
   uid: string;
   location: string; // pdf: page number as string; epub: CFI
   percent: number; // 0..1
+  /** Which app session wrote it, so a reader can tell your other devices' moves from its own. */
+  device?: string;
   updatedAt?: Timestamp;
 }
 
 export type ReaderTheme = 'light' | 'sepia' | 'dark';
+/** 'auto' follows the device's light/dark setting. */
+export type ThemeChoice = ReaderTheme | 'auto';
 export type FlipMode = 'curl' | 'slide' | 'scroll';
+/** Single page, two-page spread, or decide from the screen shape. */
+export type PageLayout = 'auto' | 'single' | 'double';
+/** PDF single page: show the whole page, or fill the screen width and scroll down the page. */
+export type PdfFit = 'page' | 'width';
 export type FontChoice = 'publisher' | 'serif' | 'sans';
 export type LineSpacing = 'compact' | 'publisher' | 'relaxed';
 export type Margins = 'narrow' | 'normal' | 'wide';
+export type Hyphenation = 'auto' | 'none';
 
 /** EPUB typography (PDFs have fixed typesetting). */
 export interface Typography {
@@ -87,28 +98,36 @@ export interface Typography {
   font: FontChoice;
   lineSpacing: LineSpacing;
   margins: Margins;
+  hyphens: Hyphenation;
 }
 
 export interface BookPrefs {
   hiddenAuthors: string[];
   hiddenTypes: AnnotationType[];
-  theme: ReaderTheme;
+  theme: ThemeChoice;
   fontSize: number; // percent, epub only
   font: FontChoice;
   lineSpacing: LineSpacing;
   margins: Margins;
+  /** EPUB only. 'none' also ignores soft hyphens the book itself contains. */
+  hyphens: Hyphenation;
   flipMode: FlipMode;
+  pageLayout: PageLayout;
+  pdfFit: PdfFit;
 }
 
 export const DEFAULT_PREFS: BookPrefs = {
   hiddenAuthors: [],
   hiddenTypes: [],
-  theme: 'light',
+  theme: 'auto',
   fontSize: 100,
   font: 'publisher',
   lineSpacing: 'publisher',
   margins: 'normal',
+  hyphens: 'none',
   flipMode: 'curl',
+  pageLayout: 'auto',
+  pdfFit: 'width',
 };
 
 export const HIGHLIGHT_COLORS: Record<HighlightColor, string> = {
@@ -118,3 +137,46 @@ export const HIGHLIGHT_COLORS: Record<HighlightColor, string> = {
   pink: 'rgba(244, 114, 182, 0.36)',
   purple: 'rgba(167, 139, 250, 0.38)',
 };
+
+// ---- Personal library (private, under users/{uid}) ------------------------------------------------
+
+/** users/{uid}/library/{gid}__{bookId}: your own state for one book. */
+export interface LibraryEntry {
+  id: string;
+  gid: string;
+  bookId: string;
+  location?: string;
+  percent?: number;
+  readAt?: Timestamp;
+  /** Furthest point you've read up to (a location); the spoiler shield hides what's past it. */
+  furthest?: string;
+  /** Ids of your shelves this book is on. */
+  shelves?: string[];
+  /** Set by hand; otherwise a book counts as finished at the last page. */
+  finished?: boolean;
+}
+
+/** users/{uid}/shelves/{id} */
+export interface Shelf {
+  id: string;
+  name: string;
+  createdAt?: Timestamp;
+}
+
+/** users/{uid}/library/{key}/bookmarks/{id} */
+export interface Bookmark {
+  id: string;
+  location: string;
+  percent: number;
+  label: string;
+  createdAt?: Timestamp;
+}
+
+/** users/{uid}/settings/app: reader behaviour, synced across your devices. */
+export interface AppSettings {
+  spoilerShield: boolean;
+  keepAwake: boolean;
+  volumeKeys: boolean;
+}
+
+export const DEFAULT_APP_SETTINGS: AppSettings = { spoilerShield: true, keepAwake: true, volumeKeys: true };

@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider';
 import { IconGoogle } from '../components/icons';
 import { ErrorText, FullScreenSpinner, Spinner } from '../components/ui';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { publicUrl } from '../lib/util';
 
 export default function LoginPage() {
@@ -28,7 +29,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="safe-top flex min-h-full flex-col items-center justify-center px-6">
+    <div className="safe-top relative flex min-h-full flex-col items-center justify-center px-6">
+      <ThemeToggle className="absolute top-[calc(env(safe-area-inset-top)+12px)] right-3" />
       <div className="w-full max-w-sm text-center">
         <img src={publicUrl('icon.svg')} alt="ReadX" className="mx-auto mb-4 h-32 w-32" />
         <h1 className="font-serif text-4xl font-semibold tracking-tight">ReadX</h1>

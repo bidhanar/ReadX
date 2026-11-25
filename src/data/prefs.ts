@@ -17,6 +17,12 @@ export function useBookPrefs(uid: string, bookId: string) {
     }, 800),
   );
 
+  // Don't drop a change made just before leaving the book
+  useEffect(() => {
+    const flush = save.current.flush;
+    return flush;
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const apply = (data: unknown) => !cancelled && setPrefs({ ...DEFAULT_PREFS, ...(data as Partial<BookPrefs>) });

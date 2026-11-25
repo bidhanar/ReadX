@@ -71,13 +71,13 @@ export function Scrubber({
       >
         <div className={cx('absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full', dark ? 'bg-white/15' : 'bg-black/10')} />
         <div
-          className={cx('absolute top-1/2 h-1 -translate-y-1/2 rounded-full', drag === null && 'transition-all', dark ? 'bg-sky-300' : 'bg-brand')}
+          className={cx('absolute top-1/2 h-1 -translate-y-1/2 rounded-full', drag === null && 'transition-all', dark ? 'bg-[#ff9d5c]' : 'bg-brand')}
           style={rtl ? { right: 0, width: `${shown * 100}%` } : { left: 0, width: `${shown * 100}%` }}
         />
         <div
           className={cx(
             'absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow ring-2 ring-white transition-transform',
-            dark ? 'bg-sky-300' : 'bg-brand',
+            dark ? 'bg-[#ff9d5c]' : 'bg-brand',
             drag !== null && 'scale-125',
           )}
           style={{ left: pos(shown) }}

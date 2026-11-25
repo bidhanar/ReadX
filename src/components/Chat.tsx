@@ -1,11 +1,15 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
 import { deleteMessage, sendMessage, useMessages } from '../data/messages';
 import type { WithPending } from '../data/useLive';
+import { useSeen, useUnread } from '../data/seen';
+import { useLibrary } from '../data/library';
+import { useAppSettings } from '../data/settings';
+import { isAhead, posOfLocation } from '../reader/position';
 import type { Member, Message } from '../lib/types';
 import { cx, formatTime } from '../lib/util';
-import { IconBook, IconChat, IconClock, IconSend, IconTrash } from './icons';
+import { IconBook, IconChat, IconClock, IconSend, IconShield, IconTrash } from './icons';
 import { Avatar, EmptyState, ErrorText, Spinner } from './ui';
 
 export function Chat({
@@ -13,14 +17,42 @@ export function Chat({
   members,
   isOwner,
   compact,
+  liveReadTo,
 }: {
   gid: string;
   members: Map<string, Member>;
   isOwner: boolean;
   compact?: boolean;
+  /** Inside the reader: how far you've read the open book right now (newer than what's saved). */
+  liveReadTo?: { bookId: string; location: string | null };
 }) {
   const user = useUser();
   const { data: messages, loading, error } = useMessages(gid);
+  // Spoiler shield: passages others shared from further in a book than you've read
+  const { settings } = useAppSettings(user.uid);
+  const library = useLibrary(user.uid);
+  const readTo = useMemo(() => {
+    const m = new Map<string, string | undefined>();
+    for (const e of library.data) if (e.gid === gid) m.set(e.bookId, e.furthest ?? e.location);
+    return m;
+  }, [library.data, gid]);
+  const isSpoiler = (msg: Message) => {
+    if (!settings.spoilerShield || !msg.ref || msg.authorId === user.uid || library.loading) return false;
+    const mine = liveReadTo?.bookId === msg.ref.bookId ? liveReadTo.location : readTo.get(msg.ref.bookId);
+    return isAhead(posOfLocation(msg.ref.location), posOfLocation(mine));
+  };
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { seenAt, markSeen } = useSeen(user.uid, `chat_${gid}`);
+  const unread = useUnread(messages, user.uid, seenAt);
+  // Read = the chat is actually on screen (not a hidden tab, not a background browser tab)
+  useEffect(() => {
+    const check = () => {
+      if (unread.length && rootRef.current?.offsetParent && document.visibilityState === 'visible') markSeen();
+    };
+    check();
+    document.addEventListener('visibilitychange', check);
+    return () => document.removeEventListener('visibilitychange', check);
+  });
   const [text, setText] = useState('');
   const listRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -51,7 +83,7 @@ export function Chat({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col">
       <div ref={listRef} className={cx('min-h-0 flex-1 overflow-y-auto', compact ? 'px-3 py-3' : 'px-4 py-4')}>
         {loading ? (
           <div className="text-ink-soft py-10 text-center">
@@ -74,6 +106,7 @@ export function Chat({
                 mine={m.authorId === user.uid}
                 canDelete={m.authorId === user.uid || isOwner}
                 author={members.get(m.authorId)}
+                spoiler={isSpoiler(m)}
               />
             ))}
           </ul>
@@ -109,6 +142,7 @@ function MessageRow({
   mine,
   canDelete,
   author,
+  spoiler,
 }: {
   gid: string;
   m: WithPending<Message>;
@@ -116,7 +150,10 @@ function MessageRow({
   mine: boolean;
   canDelete: boolean;
   author?: Member;
+  spoiler: boolean;
 }) {
+  const [revealed, setRevealed] = useState(false);
+  const hide = spoiler && !revealed;
   const grouped =
     prev?.authorId === m.authorId &&
     (m.createdAt?.toMillis() ?? 0) - (prev.createdAt?.toMillis() ?? 0) < 5 * 60 * 1000;
@@ -131,15 +168,27 @@ function MessageRow({
         <div
           className={cx(
             'rounded-2xl px-3 py-2 text-[15px] leading-snug break-words whitespace-pre-wrap',
-            mine ? 'bg-brand rounded-br-md text-white' : 'bg-card border-line rounded-bl-md border',
+            mine ? 'bg-brand rounded-br-md text-on-brand' : 'bg-card border-line rounded-bl-md border',
           )}
         >
-          {m.ref && (
+          {hide && m.ref && (
+            <button
+              className="mb-1.5 flex w-full items-center gap-1.5 rounded-xl border-l-4 border-accent bg-amber-50 px-2.5 dark:bg-white/5 py-1.5 text-left text-sm"
+              onClick={() => setRevealed(true)}
+            >
+              <IconShield size={14} className="shrink-0" />
+              <span>
+                <span className="block text-xs font-semibold opacity-80">{m.ref.bookTitle}</span>
+                From further than you've read · tap to reveal
+              </span>
+            </button>
+          )}
+          {m.ref && !hide && (
             <Link
               to={`/g/${gid}/b/${m.ref.bookId}?loc=${encodeURIComponent(m.ref.location)}${m.ref.annotationId ? `&a=${m.ref.annotationId}` : ''}`}
               className={cx(
                 'mb-1.5 block rounded-xl border-l-4 px-2.5 py-1.5 text-sm',
-                mine ? 'border-amber-300 bg-white/15' : 'border-accent bg-amber-50',
+                mine ? 'border-amber-300 bg-white/15' : 'border-accent bg-amber-50 dark:bg-white/5',
               )}
             >
               <span className="flex items-center gap-1 text-xs font-semibold opacity-80">
@@ -148,7 +197,7 @@ function MessageRow({
               <span className="line-clamp-4 italic">“{m.ref.quote}”</span>
             </Link>
           )}
-          {m.text}
+          {hide ? <span className="pointer-events-none blur-[5px] select-none" aria-hidden="true">{m.text}</span> : m.text}
         </div>
         <span className="text-ink-soft mt-0.5 flex items-center gap-1 px-1 text-[11px]">
           {m._pending ? (

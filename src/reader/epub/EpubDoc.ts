@@ -24,6 +24,8 @@ export class EpubDoc {
   rtl = false;
   /** rendition:layout = pre-paginated (comics, picture books). */
   fixedLayout = false;
+  /** dc:language, e.g. "en", "fr-CA" ('' if not given). */
+  lang = '';
   private htmlCache = new Map<number, Promise<string>>();
   private tocBySpine = new Map<number, string>();
   /** Every TOC entry that points into a spine item, in reading order (fragment '' = start). */
@@ -37,8 +39,10 @@ export class EpubDoc {
     const book = ePub(data.slice(0) as unknown as string);
     await book.opened;
     const doc = new EpubDoc(book);
-    const meta = (book as unknown as { packaging: { metadata: { direction?: string; layout?: string } } }).packaging.metadata;
+    const meta = (book as unknown as { packaging: { metadata: { direction?: string; layout?: string; language?: string } } }).packaging
+      .metadata;
     doc.rtl = meta.direction === 'rtl';
+    doc.lang = (meta.language ?? '').trim().toLowerCase();
     doc.fixedLayout = meta.layout === 'pre-paginated';
     const spine = book.spine as unknown as { length: number; get(i: number): Section };
     for (let i = 0; i < spine.length; i++) {

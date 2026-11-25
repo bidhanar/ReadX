@@ -82,14 +82,22 @@ export const PdfView = forwardRef<EngineHandle, EngineProps>(function PdfView(pr
   }, []);
 
   // ---- Build pager -------------------------------------------------------------------------
-  const { flipMode, theme, zoom } = props;
+  const { flipMode, theme, zoom, pageLayout, pdfFit } = props;
   useEffect(() => {
     if (!doc || !size || !containerRef.current) return;
     const scrollMode = flipMode === 'scroll';
-    const fit = fitPages(size.w, size.h, aspect, !scrollMode);
+    const fit = fitPages(size.w, size.h, aspect, pageLayout, flipMode);
     // Scroll mode fits page width to the screen (×zoom); paged modes fit the whole page.
-    const pageW = scrollMode ? Math.min(size.w - 16, 1000) * zoom : fit.pageW;
-    const pageH = scrollMode ? pageW / aspect : fit.pageH;
+    // Fit width: a single page on a screen wider than the page's shape fills the width and you
+    // scroll down the page (paged modes only; scroll mode has its own zoom).
+    const fitWidth = !scrollMode && !fit.spread && pdfFit === 'width' && size.w / size.h > aspect * 1.05;
+    const pageW = scrollMode ? Math.min(size.w - 16, 1000) * zoom : fitWidth ? size.w - (size.w < 640 ? 0 : 32) : fit.pageW;
+    const pageH = scrollMode ? pageW / aspect : fitWidth ? pageW / aspect : fit.pageH;
+    const host = hostRef.current!;
+    host.style.overflowY = fitWidth ? 'auto' : 'hidden';
+    containerRef.current.style.alignItems = fitWidth ? 'flex-start' : 'center';
+    containerRef.current.style.height = fitWidth ? 'auto' : '100%';
+    containerRef.current.style.padding = fitWidth && size.w >= 640 ? '16px 0' : '0';
     const mounted = mountedRef.current;
 
     const pager = new Pager({
@@ -122,6 +130,7 @@ export const PdfView = forwardRef<EngineHandle, EngineProps>(function PdfView(pr
       },
       onChange: (i) => {
         locationRef.current = i;
+        if (fitWidth) host.scrollTo({ top: 0 }); // new page starts at its top
         report();
       },
       onTap: (z) => propsRef.current.onTap(z),
@@ -133,12 +142,21 @@ export const PdfView = forwardRef<EngineHandle, EngineProps>(function PdfView(pr
       const vis = pager.visible();
       const n = doc!.numPages;
       const first = vis[0];
+      const last = vis[vis.length - 1];
       const label =
         vis.length > 1 ? `Pages ${vis[0] + 1}–${vis[1] + 1} of ${n}` : `Page ${first + 1} of ${n}`;
+      // Next chapter start after the pages on screen (no outline: chapters unknown)
+      const toc = tocRef.current;
+      const nextChapter = toc.length ? Math.min(n, ...toc.map((t) => pdfPageOf(t.location)).filter((p) => p > last)) : null;
       propsRef.current.onLocation({
         location: pdfLocation(first),
-        percent: n > 1 ? (vis[vis.length - 1]) / (n - 1) : 1,
+        percent: n > 1 ? last / (n - 1) : 1,
         label,
+        end: pdfLocation(last),
+        chapterPagesLeft: nextChapter === null ? undefined : nextChapter - last - 1,
+        bookPagesLeft: n - 1 - last,
+        section: 0,
+        page: first,
       });
     }
 
@@ -146,7 +164,7 @@ export const PdfView = forwardRef<EngineHandle, EngineProps>(function PdfView(pr
       pager.destroy();
       pagerRef.current = null;
     };
-  }, [doc, size, aspect, flipMode, theme, zoom]);
+  }, [doc, size, aspect, flipMode, theme, zoom, pageLayout, pdfFit]);
 
   // ---- Search matches ----------------------------------------------------------------------
   useEffect(() => {
@@ -346,6 +364,7 @@ export const PdfView = forwardRef<EngineHandle, EngineProps>(function PdfView(pr
         pagerRef.current?.goTo(pdfPageOf(loc));
       },
       locationOf: (a: Anchor) => (a.kind === 'pdf' ? pdfLocation(a.page) : pdfLocation(0)),
+      chapterOf: (a: Anchor) => (a.kind === 'pdf' ? chapterAt(tocRef.current, a.page) : ''),
       clearSelection: () => window.getSelection()?.removeAllRanges(),
       flash: (id) => setTimeout(() => hostRef.current && flashBoxes(hostRef.current, id), 450),
       search: async (query, signal, onHit) => {
@@ -382,6 +401,16 @@ export const PdfView = forwardRef<EngineHandle, EngineProps>(function PdfView(pr
     </div>
   );
 });
+
+/** Outline entry a page belongs to: the one starting latest at or before it. */
+function chapterAt(toc: TocItem[], page: number): string {
+  let best: { label: string; page: number } | null = null;
+  for (const t of toc) {
+    const p = pdfPageOf(t.location);
+    if (p <= page && (!best || p >= best.page)) best = { label: t.label, page: p };
+  }
+  return best?.label ?? '';
+}
 
 function elementOf(n: Node): HTMLElement | null {
   return n.nodeType === Node.ELEMENT_NODE ? (n as HTMLElement) : n.parentElement;

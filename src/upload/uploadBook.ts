@@ -78,6 +78,9 @@ async function extractEpub(buf: ArrayBuffer, file: File): Promise<Extracted> {
     }
     return { title: meta.title?.trim() || baseTitle(file), author: meta.creator?.trim() || '', cover };
   } finally {
+    // epub.js keeps loading the table of contents after `opened`; destroying the book mid-way makes
+    // that finish against a torn-down object and throw. Let it settle first.
+    await Promise.race([book.loaded.navigation.catch(() => {}), new Promise((r) => setTimeout(r, 3000))]);
     book.destroy();
   }
 }

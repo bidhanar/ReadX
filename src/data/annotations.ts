@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDocs,
   orderBy,
   query,
   serverTimestamp,
@@ -55,3 +56,9 @@ export const addReply = (gid: string, bookId: string, aid: string, authorId: str
 
 export const deleteReply = (gid: string, bookId: string, aid: string, rid: string) =>
   queued(deleteDoc(doc(repliesCol(gid, bookId, aid), rid)), 'Delete reply');
+
+/** One-off read of a discussion's replies (for exports). */
+export async function fetchReplies(gid: string, bookId: string, aid: string): Promise<Reply[]> {
+  const snap = await getDocs(query(repliesCol(gid, bookId, aid), orderBy('createdAt')));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: 'estimate' }) }) as Reply);
+}

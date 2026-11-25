@@ -10,5 +10,11 @@ export function useProgress(gid: string, bookId: string) {
   return useLiveQuery<Progress & { id: string }>(progCol(gid, bookId), `prog:${gid}/${bookId}`);
 }
 
+/** Identifies this app session (tab / app launch) in the progress it saves. */
+export const DEVICE_ID = crypto.randomUUID();
+
 export const saveProgress = (gid: string, bookId: string, uid: string, location: string, percent: number) =>
-  queued(setDoc(doc(progCol(gid, bookId), uid), { uid, location, percent, updatedAt: serverTimestamp() }), 'Save reading position');
+  queued(
+    setDoc(doc(progCol(gid, bookId), uid), { uid, location, percent, device: DEVICE_ID, updatedAt: serverTimestamp() }),
+    'Save reading position',
+  );

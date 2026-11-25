@@ -43,6 +43,7 @@ declare module 'page-flip' {
     getCurrentPageIndex(): number;
     getPageCount(): number;
     getOrientation(): 'portrait' | 'landscape';
+    getSettings(): FlipSetting;
     on(event: 'flip' | 'changeOrientation' | 'changeState' | 'init' | 'update', cb: (e: WidgetEvent) => void): PageFlip;
     off(event: string): void;
   }

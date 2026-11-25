@@ -45,8 +45,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     if (Capacitor.isNativePlatform()) {
-      // Native account picker → ID token → Firebase JS SDK session
-      const result = await FirebaseAuthentication.signInWithGoogle();
+      // Native account picker → ID token → Firebase JS SDK session.
+      // Android's Credential Manager fails for some accounts/devices (e.g. "[16] Account reauth
+      // failed"); if it errors for any reason other than the user backing out, use the classic
+      // Google account picker instead.
+      let result;
+      try {
+        result = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: true });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/cancel+ed by the user|user cancel+ed/i.test(msg)) throw e;
+        console.warn('Credential Manager sign-in failed, using the classic Google picker:', msg);
+        result = await FirebaseAuthentication.signInWithGoogle({ useCredentialManager: false });
+      }
       const idToken = result.credential?.idToken;
       if (!idToken) throw new Error('Google sign-in returned no ID token');
       await signInWithCredential(auth, GoogleAuthProvider.credential(idToken));

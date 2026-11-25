@@ -6,6 +6,7 @@ import { useHashRouter } from './lib/util';
 // GitHub Pages can't send every path to index.html, so that build routes with #/path instead
 const Router = useHashRouter ? HashRouter : BrowserRouter;
 import './index.css';
+import './lib/theme';
 import App from './App';
 import { AuthProvider } from './auth/AuthProvider';
 import { Capacitor } from '@capacitor/core';

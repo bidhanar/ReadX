@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { HIGHLIGHT_COLORS, type HighlightColor } from '../../lib/types';
-import { IconComment, IconCopy, IconLink, IconNote, IconShare } from '../../components/icons';
+import { IconComment, IconCopy, IconDictionary, IconLink, IconNote, IconShare } from '../../components/icons';
+import { isLookupable } from '../define';
 import type { SelectionInfo } from '../engine';
 
-export type SelectionAction = 'note' | 'link' | 'comment' | 'share' | 'copy';
+export type SelectionAction = 'note' | 'link' | 'comment' | 'share' | 'copy' | 'define';
 
 /** Floating toolbar above (or below) the current text selection. */
 export function SelectionMenu({
@@ -37,11 +38,11 @@ export function SelectionMenu({
   return (
     <div
       ref={ref}
-      className="animate-slide-up fixed z-[60] flex items-center gap-1 rounded-2xl bg-[#1c2433] px-2 py-1.5 shadow-2xl"
+      className="animate-slide-up fixed z-[60] flex flex-col items-center gap-1 rounded-2xl bg-[#1c2433] px-2 py-1.5 shadow-2xl sm:flex-row"
       style={pos ?? { left: -9999, top: -9999 }}
       onMouseDown={(e) => e.preventDefault()} // keep the selection alive
     >
-      <div className="flex items-center gap-1.5 px-1">
+      <div className="flex items-center gap-1.5 px-1 pt-0.5 sm:pt-0">
         {(Object.keys(HIGHLIGHT_COLORS) as HighlightColor[]).map((c) => (
           <button
             key={c}
@@ -53,7 +54,15 @@ export function SelectionMenu({
           />
         ))}
       </div>
-      <span className="mx-1 h-7 w-px bg-white/15" />
+      <span className="mx-1 hidden h-7 w-px bg-white/15 sm:block" />
+      {/* Phones: colours on top, actions below (one row would be wider than the screen) */}
+      <div className="flex items-center gap-1">
+      {isLookupable(sel.quote) && (
+        <button className={btn} onClick={() => onAction('define')}>
+          <IconDictionary size={17} />
+          Define
+        </button>
+      )}
       <button className={btn} onClick={() => onAction('note')}>
         <IconNote size={17} />
         Note
@@ -74,6 +83,7 @@ export function SelectionMenu({
         <IconCopy size={17} />
         Copy
       </button>
+      </div>
     </div>
   );
 }

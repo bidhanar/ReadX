@@ -1,8 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Annotation, AnnotationType, BookFormat, BookPrefs, FlipMode, Member, Progress, ReaderTheme } from '../lib/types';
+import type { AppSettings, Annotation, AnnotationType, BookFormat, BookPrefs, Bookmark, FlipMode, Member, Progress, ThemeChoice } from '../lib/types';
 import { HIGHLIGHT_COLORS } from '../lib/types';
 import { cx, formatTime } from '../lib/util';
-import { IconEye, IconEyeOff, IconSearch, IconZoomIn, IconZoomOut } from '../components/icons';
+import type { NightLight } from '../data/settings';
+import { isNative } from '../lib/native';
+import {
+  IconBookmark,
+  IconDownload,
+  IconEye,
+  IconEyeOff,
+  IconMoon,
+  IconSearch,
+  IconShield,
+  IconTrash,
+  IconZoomIn,
+  IconZoomOut,
+} from '../components/icons';
 import { Avatar, EmptyState, Spinner } from '../components/ui';
 import type { SearchHit, TocItem } from './engine';
 
@@ -20,7 +33,7 @@ export function TocList({ toc, onPick }: { toc: TocItem[]; onPick: (loc: string)
       {toc.map((t, i) => (
         <li key={i}>
           <button
-            className="w-full truncate px-4 py-2.5 text-left text-sm hover:bg-black/[0.03]"
+            className="w-full truncate px-4 py-2.5 text-left text-sm hover:bg-ink/[0.04]"
             style={{ paddingLeft: 16 + t.level * 16 }}
             onClick={() => onPick(t.location)}
           >
@@ -29,6 +42,64 @@ export function TocList({ toc, onPick }: { toc: TocItem[]; onPick: (loc: string)
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Contents and your bookmarks, as two tabs. */
+export function ContentsPanel({
+  toc,
+  bookmarks,
+  onPick,
+  onRemoveBookmark,
+}: {
+  toc: TocItem[];
+  bookmarks: Bookmark[];
+  onPick: (loc: string) => void;
+  onRemoveBookmark: (id: string) => void;
+}) {
+  const [tab, setTab] = useState<'toc' | 'bookmarks'>('toc');
+  return (
+    <div>
+      <div className="border-line sticky top-0 z-10 flex gap-1.5 border-b bg-card p-3">
+        {(
+          [
+            ['toc', 'Contents'],
+            ['bookmarks', `Bookmarks · ${bookmarks.length}`],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            className={cx('btn px-3 py-1', tab === id ? 'bg-brand text-on-brand' : 'bg-ink/5 text-ink-soft')}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === 'toc' ? (
+        <TocList toc={toc} onPick={onPick} />
+      ) : bookmarks.length === 0 ? (
+        <EmptyState icon={<IconBookmark />} title="No bookmarks yet">
+          Tap the bookmark button at the top (or press B) to mark the page you're on.
+        </EmptyState>
+      ) : (
+        <ul className="divide-line divide-y">
+          {bookmarks.map((b) => (
+            <li key={b.id} className="flex items-center">
+              <button className="min-w-0 flex-1 px-4 py-3 text-left hover:bg-ink/[0.04]" onClick={() => onPick(b.location)}>
+                <span className="block truncate text-sm">{b.label}</span>
+                <span className="text-ink-soft text-xs">
+                  {Math.round(b.percent * 100)}% · {formatTime(b.createdAt)}
+                </span>
+              </button>
+              <button className="icon-btn text-ink-soft mr-2" onClick={() => onRemoveBookmark(b.id)} aria-label="Remove bookmark">
+                <IconTrash size={16} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -81,7 +152,7 @@ export function SearchBox({
 
   return (
     <div>
-      <form onSubmit={run} className="border-line sticky top-0 flex gap-2 border-b bg-white p-3">
+      <form onSubmit={run} className="border-line sticky top-0 flex gap-2 border-b bg-card p-3">
         <input autoFocus className="input" placeholder="Search in book…" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn-primary px-3" aria-label="Search" disabled={q.trim().length < 2}>
           {running ? <Spinner className="h-4 w-4" /> : <IconSearch size={18} />}
@@ -91,7 +162,7 @@ export function SearchBox({
       <ul>
         {hits.map((h, i) => (
           <li key={i}>
-            <button className="w-full px-4 py-3 text-left hover:bg-black/[0.03]" onClick={() => onPick(h.location, q.trim())}>
+            <button className="w-full px-4 py-3 text-left hover:bg-ink/[0.04]" onClick={() => onPick(h.location, q.trim())}>
               <span className="text-ink-soft block text-xs font-medium">{h.label}</span>
               <span className="line-clamp-3 text-sm">
                 <Mark text={h.excerpt} q={q.trim()} />
@@ -111,7 +182,7 @@ function Mark({ text, q }: { text: string; q: string }) {
   return (
     <>
       {text.slice(0, i)}
-      <mark className="rounded bg-amber-200 px-0.5">{text.slice(i, i + q.length)}</mark>
+      <mark className="rounded bg-amber-200 px-0.5 dark:bg-amber-400/30 dark:text-ink">{text.slice(i, i + q.length)}</mark>
       {text.slice(i + q.length)}
     </>
   );
@@ -126,34 +197,59 @@ export function AnnotationList({
   members,
   myUid,
   hiddenCount,
+  newIds,
+  isSpoiler,
   onPick,
+  onExport,
 }: {
   annotations: Annotation[];
   members: Map<string, Member>;
   myUid: string;
   hiddenCount: number;
+  /** Added by others since you last opened this list. */
+  newIds?: Set<string>;
+  /** Spoiler shield: someone else's note from further in the book than you've read. */
+  isSpoiler?: (a: Annotation) => boolean;
   onPick: (a: Annotation) => void;
+  onExport?: () => void;
 }) {
   const [filter, setFilter] = useState<AnnotationType | 'all'>('all');
+  const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const shown = useMemo(
     () => (filter === 'all' ? annotations : annotations.filter((a) => a.type === filter)),
     [annotations, filter],
   );
+  const blurred = (a: Annotation) => !!isSpoiler?.(a) && !revealed.has(a.id);
+  const spoilers = shown.filter(blurred).length;
   return (
     <div>
-      <div className="no-scrollbar border-line sticky top-0 flex gap-1.5 overflow-x-auto border-b bg-white p-3">
+      <div className="no-scrollbar border-line sticky top-0 z-10 flex gap-1.5 overflow-x-auto border-b bg-card p-3">
         {(['all', 'note', 'comment', 'link', 'highlight'] as const).map((f) => (
           <button
             key={f}
-            className={cx('btn shrink-0 px-3 py-1', filter === f ? 'bg-brand text-white' : 'bg-black/5 text-ink-soft')}
+            className={cx('btn shrink-0 px-3 py-1', filter === f ? 'bg-brand text-on-brand' : 'bg-ink/5 text-ink-soft')}
             onClick={() => setFilter(f)}
           >
             {f === 'all' ? 'All' : TYPE_LABEL[f]}
           </button>
         ))}
+        {onExport && (
+          <button className="btn text-brand ml-auto shrink-0 px-3 py-1" onClick={onExport} title="Export highlights & notes">
+            <IconDownload size={15} /> Export
+          </button>
+        )}
       </div>
       {hiddenCount > 0 && (
         <p className="text-ink-soft px-4 pt-3 text-xs">{hiddenCount} hidden by your layer settings.</p>
+      )}
+      {spoilers > 0 && (
+        <p className="text-ink-soft flex items-center gap-1.5 px-4 pt-3 text-xs">
+          <IconShield size={14} />
+          {spoilers} from further than you've read {spoilers === 1 ? 'is' : 'are'} blurred.
+          <button className="text-brand font-medium hover:underline" onClick={() => setRevealed(new Set(shown.map((a) => a.id)))}>
+            Show all
+          </button>
+        </p>
       )}
       {shown.length === 0 ? (
         <EmptyState icon={<IconSearch />} title="Nothing here yet">
@@ -163,23 +259,36 @@ export function AnnotationList({
         <ul className="divide-line divide-y">
           {shown.map((a) => {
             const m = members.get(a.authorId);
+            const hide = blurred(a);
             return (
               <li key={a.id}>
-                <button className="flex w-full gap-3 px-4 py-3 text-left hover:bg-black/[0.03]" onClick={() => onPick(a)}>
+                <button
+                  className="flex w-full gap-3 px-4 py-3 text-left hover:bg-ink/[0.04]"
+                  onClick={() => (hide ? setRevealed((r) => new Set([...r, a.id])) : onPick(a))}
+                  aria-label={hide ? 'Spoiler hidden: tap to reveal' : undefined}
+                >
                   <Avatar uid={a.authorId} name={m?.displayName ?? '?'} photo={m?.photoURL} size={28} />
                   <div className="min-w-0 flex-1">
                     <p className="text-ink-soft mb-1 text-xs">
+                      {newIds?.has(a.id) && <span className="bg-accent mr-1.5 rounded px-1 py-px text-[10px] font-semibold text-white uppercase">New</span>}
                       <span className="text-ink font-medium">{a.authorId === myUid ? 'You' : (m?.displayName ?? 'Former member')}</span> ·{' '}
                       {a.type} · {formatTime(a.createdAt)}
                     </p>
-                    <p
-                      className="line-clamp-2 rounded px-1 font-serif text-sm italic"
-                      style={{ background: a.type === 'link' ? undefined : HIGHLIGHT_COLORS[a.color] }}
-                    >
-                      “{a.anchor.quote}”
-                    </p>
-                    {a.text && <p className="mt-1 line-clamp-3 text-sm">{a.text}</p>}
-                    {a.url && <p className="text-brand mt-1 truncate text-xs">{a.url}</p>}
+                    <div className={cx(hide && 'pointer-events-none blur-[5px] select-none')} aria-hidden={hide || undefined}>
+                      <p
+                        className="line-clamp-2 rounded px-1 font-serif text-sm italic"
+                        style={{ background: a.type === 'link' ? undefined : HIGHLIGHT_COLORS[a.color] }}
+                      >
+                        “{a.anchor.quote}”
+                      </p>
+                      {a.text && <p className="mt-1 line-clamp-3 text-sm">{a.text}</p>}
+                      {a.url && <p className="text-brand mt-1 truncate text-xs">{a.url}</p>}
+                    </div>
+                    {hide && (
+                      <p className="text-ink-soft mt-1 flex items-center gap-1 text-xs">
+                        <IconShield size={12} /> Further than you've read · tap to reveal
+                      </p>
+                    )}
                   </div>
                 </button>
               </li>
@@ -199,6 +308,8 @@ export function LayersPanel({
   prefs,
   myUid,
   progress,
+  spoilerShield,
+  onSpoilerShield,
   onChange,
   onJumpTo,
 }: {
@@ -207,6 +318,8 @@ export function LayersPanel({
   prefs: BookPrefs;
   myUid: string;
   progress: Map<string, Progress>;
+  spoilerShield: boolean;
+  onSpoilerShield: (on: boolean) => void;
   onChange: (p: Partial<BookPrefs>) => void;
   onJumpTo: (loc: string) => void;
 }) {
@@ -245,7 +358,7 @@ export function LayersPanel({
           const on = !hidden.has(m.uid);
           const p = progress.get(m.uid);
           return (
-            <li key={m.uid} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-black/[0.03]">
+            <li key={m.uid} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-ink/[0.04]">
               <Avatar uid={m.uid} name={m.displayName} photo={m.photoURL} size={32} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{m.uid === myUid ? 'You' : m.displayName}</p>
@@ -273,13 +386,20 @@ export function LayersPanel({
           );
         })}
       </ul>
+      <Toggle
+        icon={<IconShield size={18} />}
+        title="Spoiler shield"
+        desc="Blur other people's notes and chat quotes from further in the book than you've read. Tap one to reveal it."
+        on={spoilerShield}
+        onChange={onSpoilerShield}
+      />
       <div>
         <h3 className="text-ink-soft mb-2 text-xs font-semibold tracking-wider uppercase">Types</h3>
         <div className="flex flex-wrap gap-2">
           {(Object.keys(TYPE_LABEL) as AnnotationType[]).map((t) => (
             <button
               key={t}
-              className={cx('btn px-3 py-1.5 text-sm', hiddenTypes.has(t) ? 'bg-black/5 text-ink-soft line-through' : 'bg-brand-soft text-brand')}
+              className={cx('btn px-3 py-1.5 text-sm', hiddenTypes.has(t) ? 'bg-ink/5 text-ink-soft line-through' : 'bg-brand-soft text-brand')}
               onClick={() => toggleType(t)}
               aria-pressed={!hiddenTypes.has(t)}
             >
@@ -300,17 +420,26 @@ export function SettingsPanel({
   zoom,
   onZoom,
   onChange,
+  nightLight,
+  onNightLight,
+  settings,
+  onSettings,
 }: {
   format: BookFormat;
   prefs: BookPrefs;
   zoom: number;
   onZoom: (z: number) => void;
   onChange: (p: Partial<BookPrefs>) => void;
+  nightLight: NightLight;
+  onNightLight: (n: NightLight) => void;
+  settings: AppSettings;
+  onSettings: (p: Partial<AppSettings>) => void;
 }) {
-  const themes: { id: ReaderTheme; label: string; cls: string }[] = [
-    { id: 'light', label: 'Light', cls: 'bg-white text-ink' },
+  const themes: { id: ThemeChoice; label: string; cls: string; title?: string }[] = [
+    { id: 'light', label: 'Light', cls: 'bg-white text-[#1c2433]' },
     { id: 'sepia', label: 'Sepia', cls: 'bg-[#f4ecd8] text-[#4b3a2a]' },
-    { id: 'dark', label: 'Dark', cls: 'bg-[#1d1f24] text-[#d8d4cc]' },
+    { id: 'dark', label: 'Dark', cls: 'bg-[#15171f] text-[#e2ddd3]' },
+    { id: 'auto', label: 'Auto', cls: 'bg-gradient-to-r from-white to-[#15171f] text-[#1c2433]', title: "Follows ReadX's light / dark mode" },
   ];
   const modes: { id: FlipMode; label: string; desc: string }[] = [
     { id: 'curl', label: 'Page curl', desc: 'Realistic page turn' },
@@ -321,18 +450,64 @@ export function SettingsPanel({
     <div className="space-y-6 p-4">
       <section>
         <h3 className="text-ink-soft mb-2 text-xs font-semibold tracking-wider uppercase">Theme</h3>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {themes.map((t) => (
             <button
               key={t.id}
               className={cx('rounded-xl border py-3 text-sm font-medium', t.cls, prefs.theme === t.id ? 'border-brand ring-brand/30 ring-2' : 'border-line')}
               onClick={() => onChange({ theme: t.id })}
+              title={t.title}
             >
-              {t.label}
+              <span className={cx(t.id === 'auto' && 'rounded bg-white/85 px-1.5')}>{t.label}</span>
             </button>
           ))}
         </div>
       </section>
+      <section>
+        <h3 className="text-ink-soft mb-2 flex items-center gap-1.5 text-xs font-semibold tracking-wider uppercase">
+          <IconMoon size={14} /> Night light
+        </h3>
+        <Slider
+          label="Dim"
+          value={nightLight.dim}
+          max={0.7}
+          onChange={(dim) => onNightLight({ ...nightLight, dim })}
+          hint="Darker than your screen's lowest brightness"
+        />
+        <Slider
+          label="Warmth"
+          value={nightLight.warmth}
+          max={0.5}
+          onChange={(warmth) => onNightLight({ ...nightLight, warmth })}
+          hint="Less blue light, easier on the eyes at night"
+        />
+        <p className="text-ink-soft mt-1 text-[11px]">Saved on this device only.</p>
+      </section>
+      {prefs.flipMode === 'scroll' ? (
+        <p className="text-ink-soft text-xs">Scroll mode shows one page at a time. Switch to Page curl or Slide for two-page view.</p>
+      ) : (
+        <Choice
+          title="Pages"
+          value={prefs.pageLayout}
+          onChange={(pageLayout) => onChange({ pageLayout })}
+          options={[
+            { id: 'auto', label: 'Auto' },
+            { id: 'single', label: 'Single' },
+            { id: 'double', label: 'Two pages' },
+          ]}
+        />
+      )}
+      {format === 'pdf' && prefs.flipMode !== 'scroll' && (
+        <Choice
+          title="Single page fits"
+          value={prefs.pdfFit}
+          onChange={(pdfFit) => onChange({ pdfFit })}
+          options={[
+            { id: 'width', label: 'Width' },
+            { id: 'page', label: 'Whole page' },
+          ]}
+        />
+      )}
       <section>
         <h3 className="text-ink-soft mb-2 text-xs font-semibold tracking-wider uppercase">Page turning</h3>
         <div className="space-y-2">
@@ -362,7 +537,7 @@ export function SettingsPanel({
               step={10}
               value={prefs.fontSize}
               onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-              className="flex-1 accent-[#15639e]"
+              className="flex-1 accent-brand"
             />
             <button className="btn-outline w-12 text-base" onClick={() => onChange({ fontSize: Math.min(200, prefs.fontSize + 10) })}>
               A+
@@ -402,6 +577,15 @@ export function SettingsPanel({
               { id: 'wide', label: 'Wide' },
             ]}
           />
+          <Choice
+            title="Hyphenation"
+            value={prefs.hyphens}
+            onChange={(hyphens) => onChange({ hyphens })}
+            options={[
+              { id: 'none', label: 'Off' },
+              { id: 'auto', label: 'On' },
+            ]}
+          />
         </>
       )}
       {format === 'pdf' && prefs.flipMode === 'scroll' && (
@@ -420,7 +604,73 @@ export function SettingsPanel({
           </div>
         </section>
       )}
+      <section className="space-y-2">
+        <h3 className="text-ink-soft mb-2 text-xs font-semibold tracking-wider uppercase">While reading</h3>
+        <Toggle
+          title="Keep the screen on"
+          desc="The screen won't dim or lock while you read (turns off after 10 minutes without a page turn)."
+          on={settings.keepAwake}
+          onChange={(keepAwake) => onSettings({ keepAwake })}
+        />
+        {isNative && (
+          <Toggle
+            title="Volume keys turn pages"
+            desc="Volume down: next page. Volume up: previous page."
+            on={settings.volumeKeys}
+            onChange={(volumeKeys) => onSettings({ volumeKeys })}
+          />
+        )}
+      </section>
     </div>
+  );
+}
+
+function Slider({ label, value, max, hint, onChange }: { label: string; value: number; max: number; hint: string; onChange: (v: number) => void }) {
+  return (
+    <label className="mb-2 block">
+      <span className="flex items-baseline justify-between text-sm">
+        {label}
+        <span className="text-ink-soft text-xs">{value === 0 ? 'Off' : `${Math.round((value / max) * 100)}%`}</span>
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={max}
+        step={max / 20}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full accent-brand"
+        aria-describedby={undefined}
+        title={hint}
+      />
+    </label>
+  );
+}
+
+export function Toggle({
+  icon,
+  title,
+  desc,
+  on,
+  onChange,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  desc: string;
+  on: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <button className="border-line flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left" onClick={() => onChange(!on)} role="switch" aria-checked={on}>
+      {icon && <span className={cx('mt-0.5', on ? 'text-brand' : 'text-ink-soft')}>{icon}</span>}
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{title}</span>
+        <span className="text-ink-soft block text-xs">{desc}</span>
+      </span>
+      <span className={cx('relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition', on ? 'bg-brand' : 'bg-ink/15')}>
+        <span className={cx('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all', on ? 'left-[18px]' : 'left-0.5')} />
+      </span>
+    </button>
   );
 }
 
@@ -438,7 +688,7 @@ function Choice<T extends string>({
   return (
     <section>
       <h3 className="text-ink-soft mb-2 text-xs font-semibold tracking-wider uppercase">{title}</h3>
-      <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label={title}>
+      <div className={cx('grid gap-2', options.length === 2 ? 'grid-cols-2' : 'grid-cols-3')} role="radiogroup" aria-label={title}>
         {options.map((o) => (
           <button
             key={o.id}

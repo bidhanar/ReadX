@@ -1,5 +1,5 @@
 import { PageFlip } from 'page-flip';
-import type { FlipMode } from '../lib/types';
+import type { FlipMode, PageLayout } from '../lib/types';
 
 export type TapZone = 'left' | 'center' | 'right';
 
@@ -36,6 +36,13 @@ export interface PagerOptions {
 }
 
 const SCROLL_GAP = 12;
+/** Single-page turn duration (touch screens a little snappier). */
+const TURN_MS = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches ? 420 : 480;
+/**
+ * How far a turning page rotates. Past 90° it's edge-on and then off the page area, so rotating
+ * further only wastes animation time on something you can't see.
+ */
+const TURN_ANGLE = 100;
 
 /**
  * Owns the page elements and the page-turn mechanics for every reading mode:
@@ -55,6 +62,15 @@ export class Pager {
   private cleanup: (() => void)[] = [];
   private destroyed = false;
   private downAt: { x: number; y: number } | null = null;
+  /**
+   * Single-page "turn" engine (curl mode with one page): the page swings over on its spine with a
+   * CSS 3D transform. Compositor-only, so it stays smooth on phones and while the next page loads,
+   * and nothing is cloned (StPageFlip clones the page in this mode, which for EPUB means reloading
+   * a whole chapter mid-animation).
+   */
+  private turnMode = false;
+  private anim: { finish: () => void } | null = null;
+  private drag: { x: 0 | number; y: number; dir: 1 | -1 | 0; page: HTMLElement | null; start: number; angle: number; t: number } | null = null;
 
   constructor(o: PagerOptions) {
     this.o = o;
@@ -67,7 +83,8 @@ export class Pager {
       el.style.height = `${o.pageH}px`;
       this.pages.push(el);
     }
-    if (o.mode === 'curl') this.initCurl();
+    if (o.mode === 'curl' && !o.spread) this.initTurn();
+    else if (o.mode === 'curl') this.initCurl();
     else if (o.mode === 'slide') this.initSlide();
     else this.initScroll();
     this.attachPointerHandlers();
@@ -82,20 +99,51 @@ export class Pager {
 
   /** Visible page indexes (1 or 2). */
   visible(): number[] {
-    if (!this.o.spread || this.o.mode === 'scroll') return [this.current];
+    if (this.turnMode || !this.o.spread || this.o.mode === 'scroll') return [this.current];
     const s = this.spreadStart(this.current);
     if (this.o.showCover && s === 0) return [0];
     return s + 1 < this.o.count ? [s, s + 1] : [s];
   }
 
+  /**
+   * Programmatic turns (keys, buttons, taps, swipes) must bypass `disableFlipByClick`: StPageFlip
+   * implements flipPrev/flip(n) as a synthetic click, and in portrait (single page) mode that click
+   * lands mid-page, so the guard we use to protect text selection would silently swallow it.
+   */
+  private turn(fn: (f: PageFlip) => void) {
+    const f = this.flip!;
+    const s = f.getSettings();
+    const guard = s.disableFlipByClick;
+    s.disableFlipByClick = false;
+    try {
+      fn(f);
+    } finally {
+      s.disableFlipByClick = guard;
+    }
+  }
+
+  /** Make sure pages about to be shown by an animation are built (neighbours load lazily). */
+  private ensureMounted(from: number, to: number) {
+    for (let i = Math.max(0, from); i <= Math.min(this.o.count - 1, to); i++) {
+      if (!this.mounted.has(i)) {
+        this.mounted.add(i);
+        this.o.mount(i, this.pages[i]);
+      }
+    }
+  }
+
   next() {
-    if (this.flip) return this.flip.flipNext();
+    if (this.turnMode) return this.turnBy(1);
+    this.ensureMounted(this.current + 1, this.current + 3);
+    if (this.flip) return this.turn((f) => f.flipNext());
     const step = this.o.spread && this.o.mode === 'slide' ? this.visible().length : 1;
     this.goTo(this.spreadStart(this.current) + step);
   }
 
   prev() {
-    if (this.flip) return this.flip.flipPrev();
+    if (this.turnMode) return this.turnBy(-1);
+    this.ensureMounted(this.current - 3, this.current - 1);
+    if (this.flip) return this.turn((f) => f.flipPrev());
     if (this.o.spread && this.o.mode === 'slide') {
       const s = this.spreadStart(this.current);
       return this.goTo(s === 0 ? 0 : this.spreadStart(s - 1));
@@ -105,8 +153,15 @@ export class Pager {
 
   goTo(index: number, animate = true) {
     index = clamp(index, 0, this.o.count - 1);
+    if (this.turnMode) {
+      if (animate && Math.abs(index - this.current) === 1) return this.turnBy(index > this.current ? 1 : -1);
+      this.anim?.finish();
+      this.setCurrent(index);
+      this.layoutTurn();
+      return;
+    }
     if (this.flip) {
-      if (animate && Math.abs(index - this.current) <= 2) this.flip.flip(index);
+      if (animate && Math.abs(index - this.current) <= 2) this.turn((f) => f.flip(index));
       else this.flip.turnToPage(index);
       this.setCurrent(index);
       return;
@@ -129,6 +184,52 @@ export class Pager {
     this.o.onTap?.(zone);
   }
 
+  /**
+   * Finger tracking for the single-page turn (the page follows your finger). Coordinates are in
+   * the top window. Returns false when not in that mode so callers fall back to swipe detection.
+   */
+  touchStart(x: number, y: number): boolean {
+    if (!this.turnMode) return false;
+    this.drag = { x, y, dir: 0, page: null, start: 0, angle: 0, t: performance.now() };
+    return true;
+  }
+
+  touchMove(x: number, y: number): boolean {
+    const d = this.drag;
+    if (!this.turnMode || !d) return false;
+    const w = this.o.pageW;
+    let dx = x - d.x;
+    if (this.o.rtl) dx = -dx; // the book is mirrored
+    if (!d.dir) {
+      if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(y - d.y)) return true;
+      if (!window.getSelection()?.isCollapsed) return true; // selecting text, not turning
+      const dir: 1 | -1 = dx < 0 ? 1 : -1;
+      const target = this.current + dir;
+      if (target < 0 || target >= this.o.count) return true;
+      this.anim?.finish();
+      d.dir = dir;
+      d.page = this.prepareTurn(dir);
+      d.start = dir === 1 ? 0 : -TURN_ANGLE;
+    }
+    const delta = clamp((dx / w) * TURN_ANGLE * 1.2, -TURN_ANGLE, TURN_ANGLE);
+    d.angle = d.dir === 1 ? clamp(delta, -TURN_ANGLE, 0) : clamp(-TURN_ANGLE + delta, -TURN_ANGLE, 0);
+    d.page!.style.transition = 'none';
+    d.page!.style.transform = `rotateY(${d.angle}deg)`;
+    return true;
+  }
+
+  touchEnd(x: number): boolean {
+    const d = this.drag;
+    this.drag = null;
+    if (!this.turnMode || !d) return false;
+    if (!d.dir) return true;
+    const progress = Math.abs(d.angle - d.start) / TURN_ANGLE;
+    const speed = Math.abs(x - d.x) / Math.max(1, performance.now() - d.t); // px/ms
+    const complete = progress > 0.3 || (speed > 0.5 && progress > 0.08);
+    this.animateTurn(d.dir, d.page!, d.angle, complete);
+    return true;
+  }
+
   /** Forwarded horizontal swipe from content that swallows events. */
   swipe(direction: 'next' | 'prev') {
     if (this.o.mode === 'scroll') return;
@@ -149,12 +250,118 @@ export class Pager {
     for (const i of [...this.mounted]) this.remount(i);
   }
 
+  // ---- Single-page turn engine ----------------------------------------------------------------
+
+  private initTurn() {
+    const { container, pageW, pageH } = this.o;
+    const book = document.createElement('div');
+    book.className = 'turn-book';
+    book.style.cssText = `position:relative;width:${pageW}px;height:${pageH}px;perspective:${Math.round(Math.max(1400, pageW * 2.4))}px;touch-action:pan-y;flex:none${this.o.rtl ? ';transform:scaleX(-1)' : ''}`;
+    for (const p of this.pages) {
+      p.classList.add('turn-page');
+      p.style.setProperty('--turn-ms', `${TURN_MS}ms`);
+      book.appendChild(p);
+    }
+    container.appendChild(book);
+    this.viewport = book;
+    this.turnMode = true;
+    this.layoutTurn();
+    // Finger tracking for content that delivers touch events to us (PDF pages)
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch' || (e.target as HTMLElement).closest('a, button, .hl-box')) return;
+      this.touchStart(e.clientX, e.clientY);
+    };
+    const move = (e: PointerEvent) => e.pointerType === 'touch' && this.touchMove(e.clientX, e.clientY);
+    const up = (e: PointerEvent) => e.pointerType === 'touch' && this.touchEnd(e.clientX);
+    const cancel = () => {
+      const d = this.drag;
+      this.drag = null;
+      if (d?.dir) this.animateTurn(d.dir, d.page!, d.angle, false);
+    };
+    book.addEventListener('pointerdown', down);
+    book.addEventListener('pointermove', move);
+    book.addEventListener('pointerup', up);
+    book.addEventListener('pointercancel', cancel);
+    this.cleanup.push(() => {
+      book.removeEventListener('pointerdown', down);
+      book.removeEventListener('pointermove', move);
+      book.removeEventListener('pointerup', up);
+      book.removeEventListener('pointercancel', cancel);
+    });
+  }
+
+  /** Resting state: only the current page shown, nothing rotated. */
+  private layoutTurn() {
+    this.pages.forEach((p, i) => {
+      p.style.transition = 'none';
+      p.style.transform = '';
+      p.classList.remove('--shade', '--turning');
+      p.style.display = i === this.current ? 'block' : 'none';
+      p.style.zIndex = i === this.current ? '2' : '1';
+    });
+  }
+
+  /** Show the two pages involved in a turn; returns the page that swings. */
+  private prepareTurn(dir: 1 | -1): HTMLElement {
+    const target = this.current + dir;
+    if (!this.mounted.has(target)) {
+      this.mounted.add(target);
+      this.o.mount(target, this.pages[target]);
+    }
+    const top = dir === 1 ? this.pages[this.current] : this.pages[target];
+    const under = dir === 1 ? this.pages[target] : this.pages[this.current];
+    under.style.display = 'block';
+    under.style.zIndex = '1';
+    top.style.display = 'block';
+    top.style.zIndex = '3';
+    top.classList.add('--turning');
+    top.style.transition = 'none';
+    top.style.transform = `rotateY(${dir === 1 ? 0 : -TURN_ANGLE}deg)`;
+    return top;
+  }
+
+  private turnBy(dir: 1 | -1) {
+    this.anim?.finish(); // quick taps: complete the running turn first
+    const target = this.current + dir;
+    if (target < 0 || target >= this.o.count) return;
+    const page = this.prepareTurn(dir);
+    this.animateTurn(dir, page, dir === 1 ? 0 : -TURN_ANGLE, true);
+  }
+
+  /** Animate the swinging page from `from` degrees to done (or back to where it started). */
+  private animateTurn(dir: 1 | -1, page: HTMLElement, from: number, complete: boolean) {
+    const target = this.current + dir;
+    const end = complete ? (dir === 1 ? -TURN_ANGLE : 0) : dir === 1 ? 0 : -TURN_ANGLE;
+    const span = Math.abs(end - from) / TURN_ANGLE;
+    const ms = Math.max(140, Math.round(TURN_MS * span));
+    page.style.transition = 'none';
+    page.style.transform = `rotateY(${from}deg)`;
+    void page.offsetWidth; // commit the start angle before transitioning
+    // Ease-in-out: the page lifts, sweeps, and settles (a fast start would hide most of the motion)
+    page.style.transition = `transform ${ms}ms cubic-bezier(.45,.05,.4,1)`;
+    page.style.setProperty('--turn-ms', `${ms}ms`);
+    page.classList.toggle('--shade', end === -TURN_ANGLE);
+    page.style.transform = `rotateY(${end}deg)`;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      this.anim = null;
+      if (complete) this.setCurrent(target);
+      this.layoutTurn();
+    };
+    const timer = setTimeout(finish, ms + 30);
+    this.anim = { finish };
+  }
+
   isMounted(index: number) {
     return this.mounted.has(index);
   }
 
   destroy() {
     this.destroyed = true;
+    clearTimeout(this.mountTimer);
     this.cleanup.forEach((f) => f());
     for (const i of this.mounted) this.o.unmount?.(i, this.pages[i]);
     this.mounted.clear();
@@ -188,7 +395,7 @@ export class Pager {
       usePortrait: !spread,
       showCover: this.o.showCover && spread,
       startPage: this.current,
-      flippingTime: 650,
+      flippingTime: 520,
       maxShadowOpacity: 0.35,
       drawShadow: true,
       showPageCorners: true,
@@ -349,12 +556,16 @@ export class Pager {
     });
   }
 
+  /** Corners StPageFlip turns on click. With a single page (portrait) only the right corners are
+   *  real: its left corners belong to the off-screen previous page, so taps there are ours. */
   private isFlipCorner(clientX: number, clientY: number) {
     const r = this.viewport.getBoundingClientRect();
     const d = Math.hypot(this.o.pageW, this.o.pageH) / 5;
     const x = clientX - r.left;
     const y = clientY - r.top;
-    return (x < d || x > r.width - d) && (y < d || y > r.height - d);
+    const vertical = y < d || y > r.height - d;
+    if (!this.o.spread) return vertical && x > r.width - d;
+    return vertical && (x < d || x > r.width - d);
   }
 
   private spreadStart(i: number) {
@@ -384,13 +595,30 @@ export class Pager {
       if (this.current + d <= hi) order.push(this.current + d);
       if (d > 0 && this.current - d >= lo) order.push(this.current - d);
     }
+    // Visible pages now; neighbours one per tick afterwards, so the page you land on paints first
+    // and building the next ones (an EPUB chapter layout can be heavy) never blocks a turn.
+    clearTimeout(this.mountTimer);
+    const visible = new Set(this.visible());
+    const later: number[] = [];
     for (const i of order) {
+      if (this.mounted.has(i)) continue;
+      if (visible.has(i)) {
+        this.mounted.add(i);
+        this.o.mount(i, this.pages[i]);
+      } else later.push(i);
+    }
+    const step = () => {
+      const i = later.shift();
+      if (i === undefined || this.destroyed) return;
       if (!this.mounted.has(i)) {
         this.mounted.add(i);
         this.o.mount(i, this.pages[i]);
       }
-    }
+      this.mountTimer = setTimeout(step, 40);
+    };
+    this.mountTimer = setTimeout(step, 60);
   }
+  private mountTimer: ReturnType<typeof setTimeout> | undefined;
 
   private unmountPage(i: number, el: HTMLElement) {
     this.mounted.delete(i);
@@ -403,14 +631,21 @@ function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
 
+/** Two-page spread? `auto` uses one on wide, landscape screens. Scroll mode is always single. */
+export function wantsSpread(layout: PageLayout, mode: FlipMode, w: number, h: number): boolean {
+  if (mode === 'scroll' || layout === 'single') return false;
+  if (layout === 'double') return true;
+  return w >= 900 && w / h > 1.15;
+}
+
 /**
  * Pick page size and spread for a content aspect ratio (w/h) inside an available box.
  */
-export function fitPages(availW: number, availH: number, aspect: number, allowSpread: boolean) {
+export function fitPages(availW: number, availH: number, aspect: number, layout: PageLayout, mode: FlipMode) {
   const pad = availW < 640 ? 0 : 24;
   const W = Math.max(200, availW - pad * 2);
   const H = Math.max(200, availH - pad * 2);
-  const spread = allowSpread && W >= 900 && W / H > 1.15;
+  const spread = wantsSpread(layout, mode, W, H);
   const cols = spread ? 2 : 1;
   let pageH = H;
   let pageW = pageH * aspect;

@@ -77,6 +77,9 @@ export function resetInvite(group: Group): string {
 
 export const renameGroup = (gid: string, name: string) =>
   queued(updateDoc(groupRef(gid), { name: name.trim() }), 'Rename group');
+/** Owner only. `logo`: a small data URL from squareLogo(), or null to remove it. */
+export const setGroupLogo = (gid: string, logo: string | null) =>
+  queued(updateDoc(groupRef(gid), { logo }), 'Change group logo');
 export const removeMember = (gid: string, uid: string) =>
   queued(deleteDoc(doc(membersCol(gid), uid)), 'Remove member');
 

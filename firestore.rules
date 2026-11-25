@@ -17,6 +17,12 @@ service cloud.firestore {
     function ownerAfter(gid) { return getAfter(groupPath(gid)).data.ownerId == me(); }
     function onlyChanges(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
     function shortText(v, max) { return v is string && v.size() <= max; }
+    // Group logo: absent, removed (null), or a small image embedded as a data URL. Never a link,
+    // so showing it can't make members' devices fetch from someone else's server.
+    function validLogo(d) {
+      return !('logo' in d) || d.logo == null
+        || (d.logo is string && d.logo.size() <= 150000 && d.logo.matches('data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+'));
+    }
 
     // ---- Per-user private data -------------------------------------------------------------
     match /users/{uid}/{document=**} {
@@ -41,11 +47,13 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.ownerId == me()
         && shortText(request.resource.data.name, 80)
+        && validLogo(request.resource.data)
         && exists(memberPath(gid, me())) == false
         && existsAfter(memberPath(gid, me()));
       allow update: if isOwner(gid)
-        && onlyChanges(['name', 'inviteCode'])
-        && shortText(request.resource.data.name, 80);
+        && onlyChanges(['name', 'inviteCode', 'logo'])
+        && shortText(request.resource.data.name, 80)
+        && validLogo(request.resource.data);
       allow delete: if isOwner(gid);
 
       match /members/{uid} {

@@ -102,6 +102,17 @@ describe('groups', () => {
     await assertSucceeds(updateDoc(doc(db('alice'), 'groups', GID), { name: 'Renamed' }));
     await assertFails(updateDoc(doc(db('alice'), 'groups', GID), { ownerId: 'bob' }));
   });
+
+  it('only the owner sets the logo: a small embedded image, or none', async () => {
+    const logo = 'data:image/webp;base64,' + 'A'.repeat(2000);
+    await assertFails(updateDoc(doc(db('bob'), 'groups', GID), { logo }));
+    await assertSucceeds(updateDoc(doc(db('alice'), 'groups', GID), { logo }));
+    await assertSucceeds(updateDoc(doc(db('alice'), 'groups', GID), { logo: null }));
+    // Links to other servers, other file types and oversized images are refused
+    await assertFails(updateDoc(doc(db('alice'), 'groups', GID), { logo: 'https://tracker.example/pixel.png' }));
+    await assertFails(updateDoc(doc(db('alice'), 'groups', GID), { logo: 'data:image/svg+xml;base64,PHN2Zz4=' }));
+    await assertFails(updateDoc(doc(db('alice'), 'groups', GID), { logo: 'data:image/png;base64,' + 'A'.repeat(160000) }));
+  });
 });
 
 describe('joining', () => {

@@ -62,7 +62,7 @@ export function ThreadPanel({
         </div>
 
         <button
-          className="border-accent text-ink-soft block w-full border-l-4 bg-amber-50/60 py-1.5 pr-2 pl-3 text-left font-serif text-sm italic hover:bg-amber-50"
+          className="border-accent text-ink-soft block w-full border-l-4 bg-amber-50/60 py-1.5 dark:bg-white/5 pr-2 pl-3 text-left font-serif text-sm italic hover:bg-amber-50 dark:hover:bg-white/10"
           onClick={() => onJump(a)}
           title="Go to passage"
         >
@@ -93,7 +93,7 @@ export function ThreadPanel({
           )}
           {(mine || isOwner) && (
             <button
-              className="btn-outline text-sm text-red-600"
+              className="btn-outline text-sm text-red-600 dark:text-red-400"
               onClick={async () => {
                 if (!confirm('Delete this for everyone?')) return;
                 try {

@@ -58,7 +58,7 @@ export function Composer({
   return (
     <Modal open onClose={onCancel} title={TITLES[v.type]}>
       <form onSubmit={submit} className="space-y-3">
-        <blockquote className="border-accent text-ink-soft line-clamp-4 border-l-4 bg-amber-50/60 py-1.5 pr-2 pl-3 font-serif text-sm italic">
+        <blockquote className="border-accent text-ink-soft line-clamp-4 border-l-4 bg-amber-50/60 py-1.5 dark:bg-white/5 pr-2 pl-3 font-serif text-sm italic">
           {quote}
         </blockquote>
         {HINTS[v.type] && <p className="text-ink-soft text-xs">{HINTS[v.type]}</p>}

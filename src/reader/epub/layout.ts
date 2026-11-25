@@ -9,10 +9,11 @@ export interface EpubLayout {
   font: Typography['font'];
   lineSpacing: Typography['lineSpacing'];
   margins: Typography['margins'];
+  hyphens: Typography['hyphens'];
   theme: ReaderTheme;
 }
 
-export const layoutKey = (l: EpubLayout) => `${l.pageW}x${l.pageH}:${l.fontSize}:${l.theme}:${l.font}:${l.lineSpacing}:${l.margins}`;
+export const layoutKey = (l: EpubLayout) => `${l.pageW}x${l.pageH}:${l.fontSize}:${l.theme}:${l.font}:${l.lineSpacing}:${l.margins}:${l.hyphens}`;
 
 const FONTS: Record<Exclude<Typography['font'], 'publisher'>, string> = {
   serif: "'Literata',Georgia,'Iowan Old Style','Palatino Linotype',serif",
@@ -24,12 +25,18 @@ const MARGIN_SCALE = { narrow: 0.55, normal: 1, wide: 1.7 } as const;
 const THEMES: Record<ReaderTheme, { bg: string; fg: string; link: string }> = {
   light: { bg: '#ffffff', fg: '#1f2328', link: '#1d4ed8' },
   sepia: { bg: '#f4ecd8', fg: '#4b3a2a', link: '#8a4b0f' },
-  dark: { bg: '#1d1f24', fg: '#d8d4cc', link: '#93c5fd' },
+  dark: { bg: '#15171f', fg: '#e2ddd3', link: '#ffb27f' },
 };
+
+/** Longest comfortable line (px at 100% text size) per margin setting; wide pages center the text. */
+const MAX_MEASURE = { narrow: 1040, normal: 780, wide: 640 } as const;
 
 export function paddings(l: EpubLayout) {
   const m = MARGIN_SCALE[l.margins] ?? 1;
-  const ph = Math.round(Math.max(12, Math.min(96, l.pageW * 0.075 * m)));
+  const base = Math.round(Math.max(12, Math.min(96, l.pageW * 0.075 * m)));
+  // A full-width single page on a big screen would give very long lines: cap the text width
+  const measure = (MAX_MEASURE[l.margins] ?? 780) * (l.fontSize / 100);
+  const ph = Math.max(base, Math.round((l.pageW - measure) / 2));
   const pv = Math.round(Math.max(18, Math.min(80, l.pageH * 0.055 * Math.sqrt(m))));
   return { ph, pv };
 }
@@ -54,6 +61,7 @@ h1,h2,h3,h4{break-after:avoid;text-align:left}
 ${l.theme === 'dark' ? `body *{color:${t.fg}!important;background-color:transparent!important;border-color:#444!important}a,a *{color:${t.link}!important}img{filter:brightness(.9)}` : ''}
 ${l.theme === 'sepia' ? `body *{background-color:transparent!important}` : ''}
 ${l.font !== 'publisher' ? `body,body :not(pre):not(code):not(kbd):not(samp):not(tt){font-family:${FONTS[l.font]}!important}` : ''}
+${l.hyphens === 'none' ? `body,body *{hyphens:none!important;-webkit-hyphens:none!important}` : ''}
 ${l.lineSpacing !== 'publisher' ? `body,body p,body li,body div,body span,body blockquote,body dd,body td{line-height:${LINE_HEIGHT[l.lineSpacing]}!important}` : ''}
 ${HIGHLIGHT_CSS}
 `;

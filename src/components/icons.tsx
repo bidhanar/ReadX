@@ -53,6 +53,18 @@ export const IconClock = make('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3
 export const IconCloudOff = make('<path d="M22.61 16.95A5 5 0 0 0 18 10h-1.26a8 8 0 0 0-7.05-6M5 5a8 8 0 0 0 4 15h9a5 5 0 0 0 1.7-.3"/><path d="M1 1l22 22"/>');
 export const IconDownload = make('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/>');
 export const IconCheck = make('<path d="M20 6L9 17l-5-5"/>');
+export const IconPageSingle = make('<rect x="6" y="3" width="12" height="18" rx="1.5"/><path d="M9 8h6M9 12h6M9 16h4"/>');
+export const IconPageDouble = make('<path d="M12 6c-2.5-1.6-5.5-2-9-1.5v14c3.5-.5 6.5-.1 9 1.5 2.5-1.6 5.5-2 9-1.5v-14c-3.5-.5-6.5-.1-9 1.5z"/><path d="M12 6v14"/>');
+export const IconMaximize = make('<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>');
+export const IconMinimize = make('<path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/>');
+export const IconBookmark = make('<path d="M6 3h12v18l-6-4.5L6 21z"/>');
+export const IconBookmarkFilled = make('<path d="M6 3h12v18l-6-4.5L6 21z"/>', true);
+export const IconDictionary = make('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V2H6.5A2.5 2.5 0 0 0 4 4.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/><path d="M9.5 12.5 12 6l2.5 6.5M10.4 10.3h3.2"/>');
+export const IconLibrary = make('<path d="M4 3v18M8.5 3v18M13 4l4.5 16.5"/><path d="M3 21h18"/>');
+export const IconShield = make('<path d="M12 3l8 3v6c0 4.8-3.4 8-8 9-4.6-1-8-4.2-8-9V6z"/>');
+export const IconMoon = make('<path d="M20.5 13.5A8.5 8.5 0 1 1 10.5 3.5a6.5 6.5 0 0 0 10 10z"/>');
+export const IconSun = make('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
+export const IconImage = make('<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>');
 export const IconMore = make('<circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>', true);
 export const IconGoogle = ({ size = 18 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true">

@@ -1,13 +1,19 @@
 import { useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
-import { removeMember, renameGroup, resetInvite, useGroup, useMembers } from '../data/groups';
+import { removeMember, renameGroup, resetInvite, setGroupLogo, useGroup, useMembers } from '../data/groups';
+import { squareLogo } from '../lib/image';
 import { deleteBook, updateBookMeta, useBooks } from '../data/books';
 import { downloadBooks, useOnDevice } from '../data/files';
 import { useOnline } from '../data/sync';
-import type { Book, Group, Member } from '../lib/types';
+import type { Book, Group, LibraryEntry, Member, Progress } from '../lib/types';
 import { appLink, cx, formatBytes } from '../lib/util';
 import { Chat } from '../components/Chat';
+import { useMessages } from '../data/messages';
+import { useSeen, useUnread } from '../data/seen';
+import { isFinished, libKey, useGroupProgress, useLibrary, useShelves } from '../data/library';
+import { BookMenu } from '../components/BookMenu';
+import { ThemeToggle } from '../components/ThemeToggle';
 import {
   IconBack,
   IconBook,
@@ -15,6 +21,7 @@ import {
   IconCheck,
   IconDownload,
   IconCopy,
+  IconImage,
   IconMore,
   IconRefresh,
   IconShare,
@@ -30,6 +37,9 @@ export default function GroupPage({ tab = 'shelf' }: { tab?: Tab }) {
   const user = useUser();
   const group = useGroup(gid);
   const members = useMembers(gid);
+  const messages = useMessages(gid);
+  const chatSeen = useSeen(user.uid, `chat_${gid}`);
+  const unreadChat = useUnread(messages.data, user.uid, chatSeen.seenAt).length;
   const memberMap = useMemo(() => new Map(members.data.map((m) => [m.uid, m as Member])), [members.data]);
 
   if (group.loading) return <FullScreenSpinner />;
@@ -66,13 +76,14 @@ export default function GroupPage({ tab = 'shelf' }: { tab?: Tab }) {
         <Link to="/" className="icon-btn" aria-label="Back">
           <IconBack />
         </Link>
-        <Avatar uid={g.id} name={g.name} size={34} />
+        <Avatar uid={g.id} name={g.name} photo={g.logo} size={34} square />
         <div className="min-w-0 flex-1">
           <h1 className="truncate leading-tight font-semibold">{g.name}</h1>
           <p className="text-ink-soft truncate text-xs">
             {members.data.length} member{members.data.length === 1 ? '' : 's'}
           </p>
         </div>
+        <ThemeToggle />
       </header>
 
       <nav className="border-line flex border-b lg:hidden">
@@ -88,6 +99,7 @@ export default function GroupPage({ tab = 'shelf' }: { tab?: Tab }) {
           >
             {t.icon}
             {t.label}
+            {t.id === 'chat' && unreadChat > 0 && tab !== 'chat' && <UnreadBadge n={unreadChat} />}
           </Link>
         ))}
       </nav>
@@ -131,6 +143,13 @@ function ShelfTab({ gid, isOwner, members }: { gid: string; isOwner: boolean; me
   const [status, setStatus] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<unknown>(null);
   const [editing, setEditing] = useState<Book | null>(null);
+  const [menu, setMenu] = useState<Book | null>(null);
+  const library = useLibrary(user.uid);
+  const shelves = useShelves(user.uid);
+  const progress = useGroupProgress(
+    gid,
+    books.map((b) => b.id),
+  );
   const online = useOnline();
   const onDevice = useOnDevice(books.map((b) => b.filePath));
   const [downloading, setDownloading] = useState<Set<string>>(new Set());
@@ -239,10 +258,16 @@ function ShelfTab({ gid, isOwner, members }: { gid: string; isOwner: boolean; me
                 </div>
                 <p className="mt-2 line-clamp-2 text-sm leading-tight font-medium">{b.title}</p>
                 {b.author && <p className="text-ink-soft truncate text-xs">{b.author}</p>}
+                <ReadingNow
+                  mine={library.data.find((e) => e.id === libKey(gid, b.id))}
+                  progress={progress.get(b.id) ?? []}
+                  myUid={user.uid}
+                  members={members}
+                />
               </Link>
               {online && !onDevice.has(b.filePath) && (
                 <button
-                  className="text-brand absolute top-1 left-1 flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-[11px] font-medium shadow"
+                  className="text-brand absolute top-1 left-1 flex items-center gap-1 rounded-full bg-card/90 px-2 py-1 text-[11px] font-medium shadow"
                   onClick={() => download([b.filePath])}
                   disabled={downloading.has(b.filePath)}
                   title="Download so this book opens without internet"
@@ -251,18 +276,39 @@ function ShelfTab({ gid, isOwner, members }: { gid: string; isOwner: boolean; me
                   {downloading.has(b.filePath) ? 'Saving…' : 'Save offline'}
                 </button>
               )}
-              {(b.uploadedBy === user.uid || isOwner) && (
-                <button
-                  className="absolute top-1 right-1 rounded-full bg-white/85 p-1 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100"
-                  onClick={() => setEditing(b)}
-                  aria-label="Book options"
-                >
-                  <IconMore size={16} />
-                </button>
-              )}
+              <button
+                className="absolute top-1 right-1 rounded-full bg-card/90 p-1 opacity-100 shadow sm:opacity-0 sm:group-hover:opacity-100"
+                onClick={() => setMenu(b)}
+                aria-label="Book options"
+              >
+                <IconMore size={16} />
+              </button>
             </li>
           ))}
         </ul>
+      )}
+
+      {menu && (
+        <BookMenu
+          uid={user.uid}
+          gid={gid}
+          book={menu}
+          entry={library.data.find((e) => e.id === libKey(gid, menu.id))}
+          shelves={shelves.data}
+          onClose={() => setMenu(null)}
+        >
+          {(menu.uploadedBy === user.uid || isOwner) && (
+            <button
+              className="btn-ghost w-full justify-center text-sm"
+              onClick={() => {
+                setEditing(menu);
+                setMenu(null);
+              }}
+            >
+              Edit details or remove from the shelf
+            </button>
+          )}
+        </BookMenu>
       )}
 
       {editing && (
@@ -273,6 +319,57 @@ function ShelfTab({ gid, isOwner, members }: { gid: string; isOwner: boolean; me
           isUploader={editing.uploadedBy === user.uid}
           onClose={() => setEditing(null)}
         />
+      )}
+    </div>
+  );
+}
+
+/** Under a book on the group shelf: how far you are, and who else is reading it. */
+function ReadingNow({
+  mine,
+  progress,
+  myUid,
+  members,
+}: {
+  mine: LibraryEntry | undefined;
+  progress: Progress[];
+  myUid: string;
+  members: Map<string, Member>;
+}) {
+  const myPct = Math.round((mine?.percent ?? progress.find((p) => p.uid === myUid)?.percent ?? 0) * 100);
+  const readers = progress.filter((p) => p.uid !== myUid && p.percent > 0 && members.has(p.uid));
+  if (!myPct && !readers.length && !isFinished(mine)) return null;
+  return (
+    <div className="mt-1.5 space-y-1">
+      {isFinished(mine) ? (
+        <p className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Finished</p>
+      ) : (
+        myPct > 0 && (
+          <div className="flex items-center gap-1.5" title={`You're ${myPct}% through`}>
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-ink/10">
+              <div className="bg-brand h-full" style={{ width: `${myPct}%` }} />
+            </div>
+            <span className="text-ink-soft text-[10px] tabular-nums">{myPct}%</span>
+          </div>
+        )
+      )}
+      {readers.length > 0 && (
+        <div
+          className="flex items-center"
+          title={readers.map((p) => `${members.get(p.uid)!.displayName}: ${Math.round(p.percent * 100)}%`).join('\n')}
+        >
+          {readers.slice(0, 4).map((p, i) => {
+            const m = members.get(p.uid)!;
+            return (
+              <span key={p.uid} className={cx('rounded-full ring-2 ring-paper', i > 0 && '-ml-1.5')}>
+                <Avatar uid={m.uid} name={m.displayName} photo={m.photoURL} size={18} />
+              </span>
+            );
+          })}
+          <span className="text-ink-soft ml-1.5 text-[10px]">
+            {readers.length > 4 ? `+${readers.length - 4} ` : ''}reading
+          </span>
+        </div>
       )}
     </div>
   );
@@ -326,7 +423,7 @@ function EditBookModal({
         <ErrorText error={error} />
         <div className="flex gap-2 pt-2">
           <button
-            className="btn-outline text-red-600"
+            className="btn-outline text-red-600 dark:text-red-400"
             disabled={busy}
             onClick={() =>
               confirm(`Remove “${book.title}” and all its highlights and notes for everyone?`) &&
@@ -420,6 +517,8 @@ function MembersTab({ group, members, isOwner }: { group: Group; members: Member
         </section>
       )}
 
+      {isOwner && <LogoCard group={group} />}
+
       <section>
         <h2 className="text-ink-soft mb-2 text-xs font-semibold tracking-wider uppercase">Members · {members.length}</h2>
         <ul className="card divide-line divide-y">
@@ -434,7 +533,7 @@ function MembersTab({ group, members, isOwner }: { group: Group; members: Member
               </div>
               {isOwner && m.uid !== user.uid && (
                 <button
-                  className="btn-ghost text-sm text-red-600"
+                  className="btn-ghost text-sm text-red-600 dark:text-red-400"
                   onClick={wrap(async () => {
                     if (confirm(`Remove ${m.displayName} from the group?`)) await removeMember(group.id, m.uid);
                   })}
@@ -451,7 +550,7 @@ function MembersTab({ group, members, isOwner }: { group: Group; members: Member
 
       {!isOwner && (
         <button
-          className="btn-outline text-red-600"
+          className="btn-outline text-red-600 dark:text-red-400"
           onClick={wrap(async () => {
             if (!confirm(`Leave ${group.name}?`)) return;
             await removeMember(group.id, user.uid);
@@ -462,5 +561,55 @@ function MembersTab({ group, members, isOwner }: { group: Group; members: Member
         </button>
       )}
     </div>
+  );
+}
+
+/** Owner: upload, change or remove the group's logo. */
+function LogoCard({ group }: { group: Group }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setGroupLogo(group.id, await squareLogo(file));
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = '';
+    }
+  };
+  return (
+    <section className="card p-4">
+      <h2 className="mb-3 font-semibold">Group logo</h2>
+      <div className="flex items-center gap-4">
+        <Avatar uid={group.id} name={group.name} photo={group.logo} size={64} square />
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-outline" onClick={() => input.current?.click()} disabled={busy}>
+            {busy ? <Spinner className="h-4 w-4" /> : <IconImage size={16} />}
+            {group.logo ? 'Change logo' : 'Upload logo'}
+          </button>
+          {group.logo && (
+            <button className="btn-ghost text-red-600 dark:text-red-400" onClick={() => setGroupLogo(group.id, null)} disabled={busy}>
+              Remove
+            </button>
+          )}
+        </div>
+        <input ref={input} type="file" accept="image/*" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
+      </div>
+      <p className="text-ink-soft mt-3 text-xs">Everyone in the group sees it next to the group's name. Square images work best; it's cropped to a square.</p>
+      <ErrorText error={error} />
+    </section>
+  );
+}
+
+function UnreadBadge({ n }: { n: number }) {
+  return (
+    <span className="bg-accent ml-0.5 min-w-5 rounded-full px-1.5 text-center text-[11px] leading-5 font-semibold text-white" aria-label={`${n} unread`}>
+      {n > 99 ? '99+' : n}
+    </span>
   );
 }

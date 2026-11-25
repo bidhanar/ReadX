@@ -72,10 +72,25 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
 
 export function debounce<T extends (...args: never[]) => void>(fn: T, ms: number) {
   let t: ReturnType<typeof setTimeout> | undefined;
-  const wrapped = (...args: Parameters<T>) => {
+  let pending: Parameters<T> | null = null;
+  const run = () => {
     clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
+    if (!pending) return;
+    const args = pending;
+    pending = null;
+    fn(...args);
   };
-  wrapped.flush = () => clearTimeout(t);
+  const wrapped = (...args: Parameters<T>) => {
+    pending = args;
+    clearTimeout(t);
+    t = setTimeout(run, ms);
+  };
+  /** Run the waiting call now (if any). */
+  wrapped.flush = run;
+  /** Drop the waiting call. */
+  wrapped.cancel = () => {
+    clearTimeout(t);
+    pending = null;
+  };
   return wrapped;
 }

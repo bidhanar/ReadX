@@ -21,13 +21,35 @@ export function FullScreenSpinner({ label }: { label?: string }) {
   );
 }
 
-export function Avatar({ uid, name, photo, size = 32 }: { uid: string; name: string; photo?: string | null; size?: number }) {
+/** A person's photo / initials, or (with `square`) a group's logo / initials. */
+export function Avatar({
+  uid,
+  name,
+  photo,
+  size = 32,
+  square,
+}: {
+  uid: string;
+  name: string;
+  photo?: string | null;
+  size?: number;
+  square?: boolean;
+}) {
   const style = { width: size, height: size, fontSize: size * 0.4 };
+  const shape = square ? 'rounded-[28%]' : 'rounded-full';
   if (photo)
-    return <img src={photo} alt={name} referrerPolicy="no-referrer" className="shrink-0 rounded-full object-cover" style={style} />;
+    return (
+      <img
+        src={photo}
+        alt={name}
+        referrerPolicy="no-referrer"
+        className={cx('shrink-0 object-cover', shape, square && 'bg-card ring-line ring-1')}
+        style={style}
+      />
+    );
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white"
+      className={cx('inline-flex shrink-0 items-center justify-center font-semibold text-white', shape)}
       style={{ ...style, background: userColor(uid) }}
       aria-label={name}
     >
@@ -134,7 +156,7 @@ export function EmptyState({ icon, title, children }: { icon: ReactNode; title: 
 export function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
   const msg = error instanceof Error ? error.message : String(error);
-  return <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{friendlyError(msg)}</p>;
+  return <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{friendlyError(msg)}</p>;
 }
 
 export function friendlyError(msg: string): string {
